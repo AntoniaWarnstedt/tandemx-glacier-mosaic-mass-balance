@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.DS_Store
+# data and results are not part of the repository
+data/
+output/
+*.tif
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.pkl
+*.npz
