@@ -255,7 +255,7 @@ def run_dhdt_comparison(early_label: str, late_label: str, tdx_dhdt_filename: st
                   f"matching): {pair_csv}  [{n_cached:,} -> {len(pairs):,} pairs "
                   f"after current thresholds]")
         else:
-            print(f"  NOTE: cached pair table lacks required columns; recomputing.")
+            print("  NOTE: cached pair table lacks required columns; recomputing.")
 
     if pairs is None:
         early_pts = prepare_dhdt_timestamp_points(early_label, cfg.DHDT_TIMESTAMP_YEARS.get(early_label, epoch_years(early_label)),

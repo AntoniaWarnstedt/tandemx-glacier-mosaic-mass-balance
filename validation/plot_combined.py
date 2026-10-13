@@ -327,7 +327,7 @@ def _draw_type_hypsometric(ax, slot, include_title=True, xlim=None, ylim=None,
     if hyps.empty:
         return _no_data(ax)
     ax2 = ax.twinx()
-    bars = ax2.bar(hyps['elev_mid'], hyps['n'], width=cfg.HYPS_BIN_WIDTH_M * 0.82, color=cfg.GREY, alpha=0.30,
+    ax2.bar(hyps['elev_mid'], hyps['n'], width=cfg.HYPS_BIN_WIDTH_M * 0.82, color=cfg.GREY, alpha=0.30,
                     zorder=1, label='N per bin')
     if show_right_label:
         ax2.set_ylabel('N', fontsize=15, color=cfg.GREY)
@@ -437,7 +437,6 @@ def _draw_type_slope_bias(ax, slot, include_title=True):
 def _draw_type_elevation_slope_heatmap(ax, slot, include_title=True,
                                         show_xlabel=True, show_ylabel=True):
     """Draws one elevation x slope bias heatmap panel."""
-    color = cfg.SENSOR_COLORS.get(slot['sensor'], cfg.RED)
     elev, slope, diff = slot.get('elev'), slot.get('slope'), slot['diff']
     if elev is None or slope is None:
         _no_data(ax, 'no elevation/slope data')

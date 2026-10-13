@@ -50,12 +50,12 @@ def plot_centerline_elevation_changes(all_changes, year_results, grid_info, cent
     print("▶ Creating centerline elevation change plots...")
 
     if not os.path.exists(centerline_dir):
-        print(f"   Warning: Centerline directory not found")
+        print("   Warning: Centerline directory not found")
         return {}
 
     centerline_files = glob.glob(os.path.join(centerline_dir, "*.shp"))
     if not centerline_files:
-        print(f"   Warning: No centerline shapefiles found")
+        print("   Warning: No centerline shapefiles found")
         return {}
 
     print(f"   Found {len(centerline_files)} centerline files")
@@ -241,7 +241,7 @@ def plot_centerline_elevation_changes(all_changes, year_results, grid_info, cent
                 grounding_line_distance_m = grounding_line_distance_m - offset_m
                 print(f"      ✓ Grounding line crosses centerline at {grounding_line_distance_m / 1000:.2f} km")
             else:
-                print(f"      ⚠️  No valid centerline-grounding line intersection")
+                print("      ⚠️  No valid centerline-grounding line intersection")
 
             fig = plt.figure(figsize=(28, 9), layout='constrained')
             gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1])
@@ -571,7 +571,7 @@ def plot_centerline_elevation_changes(all_changes, year_results, grid_info, cent
             traceback.print_exc()
             plt.close('all')
 
-    print(f"\n   ✓ Centerline analysis complete")
+    print("\n   ✓ Centerline analysis complete")
 
     if all_glacier_data:
         create_glacier_comparison_plots(all_glacier_data, years_list, year_colors)
@@ -597,10 +597,10 @@ def create_bedrock_plot(centerline_name, glacier_name, centerline,
     segments.
     """
     if not cfg.CREATE_BEDROCK_PLOTS:
-        print(f"      Skipping bedrock plot (CREATE_BEDROCK_PLOTS=False)")
+        print("      Skipping bedrock plot (CREATE_BEDROCK_PLOTS=False)")
         return None
 
-    print(f"      Creating bedrock plot...")
+    print("      Creating bedrock plot...")
 
     fig, ax = plt.subplots(figsize=(14, 8))
 
@@ -839,7 +839,7 @@ def create_bedrock_plot(centerline_name, glacier_name, centerline,
                 )
                 print(f"         ✓ Plotted grounding line at {gl_km:.2f} km")
             else:
-                print(f"         ⚠️  Grounding line position outside bedrock data range")
+                print("         ⚠️  Grounding line position outside bedrock data range")
         except Exception as e:
             print(f"         ⚠️  Could not plot grounding line: {e}")
 
@@ -907,7 +907,7 @@ def create_bedrock_plot(centerline_name, glacier_name, centerline,
 
     plt.savefig(out_path, dpi=cfg.DPI, bbox_inches='tight')
     plt.close()
-    print(f"      ✅ Saved bedrock plot")
+    print("      ✅ Saved bedrock plot")
 
     return {
         'glacier_name': glacier_name,
@@ -933,11 +933,10 @@ def create_dem_only_profile_plot(centerline_name, glacier_name, centerline,
                                  surface_data_for_combined,
                                  glacier_number=None, distance_offset_m=None):
     """Create a profile plot showing only the surface DEMs (no bedrock/thickness)."""
-    print(f"      Creating DEM-only profile plot...")
+    print("      Creating DEM-only profile plot...")
 
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    centerline_length = centerline.length
 
     # Determine overall valid glacier span
     valid_ranges = []
@@ -989,7 +988,6 @@ def create_dem_only_profile_plot(centerline_name, glacier_name, centerline,
         ax.axvline(x=position_km, color=terminus_color(mask_year, dem_panels=True),
                    linestyle='--', linewidth=2, alpha=0.7, zorder=10)
 
-        ylim = ax.get_ylim()
         label_y = -10 + 0.10 * (500 - (-10))
         ax.text(position_km, label_y, mask_year, rotation=90,
                 verticalalignment='bottom', horizontalalignment='right',
@@ -1028,7 +1026,7 @@ def create_dem_only_profile_plot(centerline_name, glacier_name, centerline,
 
     plt.savefig(out_path, dpi=cfg.DPI, bbox_inches='tight')
     plt.close()
-    print(f"      ✅ Saved DEM-only plot")
+    print("      ✅ Saved DEM-only plot")
 
 
 def create_glacier_comparison_plots(all_glacier_data, years_list, year_colors):

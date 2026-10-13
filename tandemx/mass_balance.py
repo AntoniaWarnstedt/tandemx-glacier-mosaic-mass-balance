@@ -8,19 +8,19 @@ import numpy as np
 import pandas as pd
 
 from . import config as cfg
-from .elevation_change import calc_obs_period_r_style
+from .elevation_change import calc_obs_period
 from .inventory import (
-    compute_area_perimeter_error_fraction_from_geom_r_style,
+    compute_area_perimeter_error_fraction_from_geom,
     compute_inventory_area_metrics_option_c,
     compute_observed_support_areas_km2,
 )
-from .penetration import compute_sar_penetration_r_style, summarize_penetration_test_coverage
+from .penetration import compute_sar_penetration, summarize_penetration_test_coverage
 from .stable_terrain import (
     build_paper_stable_terrain_domain,
     build_sigma_map_from_slope_bins,
     build_stable_dhdt_from_yearly_stable_dems,
     build_variogram_terrain_domain,
-    compute_stable_slope_error_r_style,
+    compute_stable_slope_error,
     fit_stable_tilt,
     write_stable_by_strip_table,
 )
@@ -37,9 +37,9 @@ from .utils import (
 from .variogram import estimate_decorrelation_length
 from .void_filling import (
     apply_void_fill_and_smooth,
-    compute_on_ice_bin_statistics_r_style,
+    compute_on_ice_bin_statistics,
     expand_bin_stats_for_void_fill,
-    summarize_regional_on_ice_change_r_style,
+    summarize_regional_on_ice_change,
 )
 
 
@@ -200,7 +200,7 @@ def compute_mass_balance_for_area_definition(
     return out
 
 
-def calculate_mass_balance_following_r_logic(
+def calculate_mass_balance(
     change_dict,
     year_results,
     grid_info,
@@ -218,7 +218,7 @@ def calculate_mass_balance_following_r_logic(
     density_B=900.0,
     region_label=None
 ):
-    """See compute_sar_penetration_r_style() and compute_paper_eq1_uncertainty()."""
+    """See compute_sar_penetration() and compute_paper_eq1_uncertainty()."""
     yA = change_dict["yA"]
     yB = change_dict["yB"]
 
@@ -251,8 +251,6 @@ def calculate_mass_balance_following_r_logic(
         area_mask_option=cfg.AREA_MASK_OPTION,
     )
 
-    start_gdf = inventory_area_stats["start_gdf"]
-    end_gdf = inventory_area_stats["end_gdf"]
     start_geom = inventory_area_stats["start_geom"]
     end_geom = inventory_area_stats["end_geom"]
     # The TRUE start/end/mean/union areas are still exported unchanged via
@@ -300,7 +298,7 @@ def calculate_mass_balance_following_r_logic(
     # ------------------------------------------------------------------
     # Observation time over observed support
     # ------------------------------------------------------------------
-    obs_stats = calc_obs_period_r_style(dt_raster, obs_union_mask.astype(np.uint8))
+    obs_stats = calc_obs_period(dt_raster, obs_union_mask.astype(np.uint8))
     obsp_mean_glc = obs_stats["Dt_mean_glc"]
     obsp_medi_glc = obs_stats["Dt_median_glc"]
 
@@ -309,12 +307,12 @@ def calculate_mass_balance_following_r_logic(
     # ------------------------------------------------------------------
     dhdt_on_ice_obs_raw = np.where(obs_union_mask, dhdt_input, np.nan)
 
-    onice_bins_raw = compute_on_ice_bin_statistics_r_style(
+    onice_bins_raw = compute_on_ice_bin_statistics(
         dhdt_on_ice=dhdt_on_ice_obs_raw,
         elev_bins=preloaded_elev_bins,
         glacier_mask=obs_union_mask.astype(np.uint8)
     )
-    onice_summary_raw = summarize_regional_on_ice_change_r_style(onice_bins_raw, pixel_area_m2)
+    onice_summary_raw = summarize_regional_on_ice_change(onice_bins_raw, pixel_area_m2)
 
     if onice_summary_raw is None:
         return None
@@ -322,7 +320,7 @@ def calculate_mass_balance_following_r_logic(
     # Same raster (3x3-filtered dh/dt, before any bias correction), same pixels
     # (obs_union_mask), same elevation bins -- only the minimum pixel count
     # differs.
-    onice_bins_detect = compute_on_ice_bin_statistics_r_style(
+    onice_bins_detect = compute_on_ice_bin_statistics(
         dhdt_on_ice=dhdt_on_ice_obs_raw,
         elev_bins=preloaded_elev_bins,
         glacier_mask=obs_union_mask.astype(np.uint8),
@@ -363,7 +361,7 @@ def calculate_mass_balance_following_r_logic(
     # Auto-detection of the affected elevation band uses the RAW (uncorrected)
     # on-ice bin stats -- see detect_penetration_break_elevation() and the
     # settings block (SAR_PEN_START_ELEV / SAR_PEN_END_ELEV / SAR_PEN_BIAS).
-    sar_out = compute_sar_penetration_r_style(
+    sar_out = compute_sar_penetration(
         ref_dem=preloaded_ref_dem,
         dt_raster=dt_raster,
         glacier_mask=union_inventory_mask.astype(np.uint8),
@@ -419,12 +417,12 @@ def calculate_mass_balance_following_r_logic(
     # ------------------------------------------------------------------
     dhdt_on_ice_obs = np.where(obs_union_mask, dhdt_input_corr, np.nan)
 
-    onice_bins = compute_on_ice_bin_statistics_r_style(
+    onice_bins = compute_on_ice_bin_statistics(
         dhdt_on_ice=dhdt_on_ice_obs,
         elev_bins=preloaded_elev_bins,
         glacier_mask=obs_union_mask.astype(np.uint8)
     )
-    onice_summary = summarize_regional_on_ice_change_r_style(onice_bins, pixel_area_m2)
+    onice_summary = summarize_regional_on_ice_change(onice_bins, pixel_area_m2)
 
     if onice_summary is None:
         return None
@@ -600,7 +598,7 @@ def calculate_mass_balance_following_r_logic(
     # ------------------------------------------------------------------
     # Slope-bin σ_stable  (narrow domain only)
     # ------------------------------------------------------------------
-    stable_bins, stable_summary = compute_stable_slope_error_r_style(
+    stable_bins, stable_summary = compute_stable_slope_error(
         stable_dhdt=dhdt_stable_for_sigma,
         slope_bins=preloaded_slope_bins,
         glacier_mask=union_inventory_mask.astype(np.uint8),
@@ -936,7 +934,7 @@ def calculate_mass_balance_following_r_logic(
     # ------------------------------------------------------------------
     # Area uncertainty
     # ------------------------------------------------------------------
-    glac_area_error_frac, ref_glc_area, ref_glc_peri = compute_area_perimeter_error_fraction_from_geom_r_style(
+    glac_area_error_frac, ref_glc_area, ref_glc_peri = compute_area_perimeter_error_fraction_from_geom(
         union_geom
     )
 

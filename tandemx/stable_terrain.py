@@ -266,7 +266,7 @@ def write_stable_by_strip_table(yA, yB, year_results, stable_dhdt, dhdt_dem,
               f"stable-ground mosaic {both.stb.median():+.2f} vs DEM mosaic {both.dem.median():+.2f} m a-1")
 
 
-def filter_stable_bin_r_style(values):
+def filter_stable_bin(values):
     """
     Match the paper method more closely for stable terrain:
     - hard filter abs(z) <= 50
@@ -285,7 +285,7 @@ def filter_stable_bin_r_style(values):
     return filtered, lo, hi
 
 
-def compute_stable_slope_error_r_style(
+def compute_stable_slope_error(
     stable_dhdt,
     slope_bins,
     glacier_mask,
@@ -324,7 +324,7 @@ def compute_stable_slope_error_r_style(
         medi_raw = np.median(raw_vals) if n_raw > 0 else np.nan
         sdev_raw = np.std(raw_vals, ddof=1) if n_raw > 1 else np.nan
 
-        fil_vals, lo, hi = filter_stable_bin_r_style(raw_vals)
+        fil_vals, lo, hi = filter_stable_bin(raw_vals)
 
         n_fil = len(fil_vals)
         mean_fil = np.mean(fil_vals) if n_fil > 0 else np.nan
@@ -347,11 +347,11 @@ def compute_stable_slope_error_r_style(
         })
 
     bin_stats = pd.DataFrame(rows).sort_values("cl").reset_index(drop=True)
-    reg_error = summarize_stable_error_r_style(bin_stats, pixel_area_m2)
+    reg_error = summarize_stable_error(bin_stats, pixel_area_m2)
     return bin_stats, reg_error
 
 
-def summarize_stable_error_r_style(bin_stats, pixel_area_m2):
+def summarize_stable_error(bin_stats, pixel_area_m2):
     """
     Match calc_regional_error() from R.
     """

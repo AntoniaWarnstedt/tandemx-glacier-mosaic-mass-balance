@@ -313,7 +313,7 @@ def load_or_create_union_mask(mask_paths, grid_info, cache_path):
     n_exclude = np.sum(bad_mask)
     total = keep_mask.size
 
-    print(f"   ✓ Created union mask:")
+    print("   ✓ Created union mask:")
     print(f"      - KEEP: {n_keep:,} ({n_keep/total*100:.2f}%) valid in >=1 year")
     print(f"      - EXCLUDE: {n_exclude:,} ({n_exclude/total*100:.2f}%) valid in no year")
 

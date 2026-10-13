@@ -36,7 +36,7 @@ def create_combined_bedrock_plot(all_glacier_bedrock_data, grid_info):
     """
 
     if not cfg.CREATE_BEDROCK_PLOTS:
-        print(f"      Skipping combined bedrock plot (CREATE_BEDROCK_PLOTS=False)")
+        print("      Skipping combined bedrock plot (CREATE_BEDROCK_PLOTS=False)")
         return
 
     if not all_glacier_bedrock_data:
@@ -115,7 +115,6 @@ def create_combined_bedrock_plot(all_glacier_bedrock_data, grid_info):
 
         surface_data = glacier_data.get('surface_data', [])
         terminus_positions = glacier_data.get('terminus_positions', {})
-        centerline_length = glacier_data.get('centerline_length', np.nan)
         dem_colormap = glacier_data.get('dem_colormap', build_years_colormap(max(len(surface_data), 1)))
         glacier_number = glacier_data.get('glacier_number', idx + 1)
 
@@ -451,7 +450,7 @@ def create_combined_bedrock_plot(all_glacier_bedrock_data, grid_info):
             label.set_horizontalalignment('right')
 
         format_coord_labels(ax_map)
-        print(f"      ✓ Added bedrock map to panel (a)")
+        print("      ✓ Added bedrock map to panel (a)")
 
     except Exception as e:
         print(f"      ⚠️  Could not create bedrock map: {e}")
@@ -480,7 +479,7 @@ def create_combined_bedrock_plot(all_glacier_bedrock_data, grid_info):
         # full 0-1 axes box, which gives the same result but only implicitly --
         # being explicit here also means this stays centered if ax_leg's own
         # bbox_to_anchor default ever changes upstream).
-        leg_all = ax_leg.legend(
+        ax_leg.legend(
             all_handles_global, all_labels_global,
             loc='center', bbox_to_anchor=(0.5, 0.5), fontsize=10.5, ncol=2,
             frameon=True, edgecolor='black', facecolor='white', framealpha=1.0,
@@ -577,7 +576,7 @@ def create_combined_dem_and_dhdt_9panel(all_glacier_bedrock_data, all_glacier_dh
         print("      No data available for 9-panel DEM/dhdt combined plot")
         return
 
-    print(f"\n      Creating 9-panel combined DEM & dh/dt plot...")
+    print("\n      Creating 9-panel combined DEM & dh/dt plot...")
 
     fig = plt.figure(figsize=(26, 18))
     gs_main = fig.add_gridspec(3, 3, wspace=0.25, hspace=0.3)
@@ -826,7 +825,7 @@ def create_combined_dem_and_dhdt_9panel(all_glacier_bedrock_data, all_glacier_dh
     # ------------------------------------------------------------------
     # (b) Save each glacier panel as an individual PNG
     # ------------------------------------------------------------------
-    print(f"      Saving individual glacier panels...")
+    print("      Saving individual glacier panels...")
     panel_letters = [chr(97 + i + 1) for i in range(8)]   # b … i
 
     for idx, (glacier_name, b_data) in enumerate(sorted_glaciers[:8]):
@@ -906,7 +905,7 @@ def create_combined_dem_and_dhdt_9panel(all_glacier_bedrock_data, all_glacier_dh
     # ------------------------------------------------------------------
     # (c) Map-centred layout: 4 glaciers | map + legends | 4 glaciers
     # ------------------------------------------------------------------
-    print(f"      Creating map-centred layout...")
+    print("      Creating map-centred layout...")
 
     # 3 columns: left glaciers | centre (map + legends) | right glaciers Centre
     # column is wider; each glacier column holds 4 rows of DEM+dhdt panels.
@@ -1085,7 +1084,7 @@ def create_combined_dem_and_dhdt_9panel(all_glacier_bedrock_data, all_glacier_dh
     # original, but panel (a) uses a satellite image instead of the reference
     # DEM, and the space freed up by dropping the DEM colorbar is used for the
     # two legends (relocated + relabelled).
-    print(f"      Creating satellite-basemap layout (landscape)...")
+    print("      Creating satellite-basemap layout (landscape)...")
 
     fig3 = plt.figure(figsize=(26, 18), constrained_layout=True)
     gs_main3 = fig3.add_gridspec(3, 3)
@@ -1198,7 +1197,7 @@ def create_combined_dem_and_dhdt_9panel(all_glacier_bedrock_data, all_glacier_dh
     # (e) Satellite-basemap layout (portrait): map + legends span the
     #     full width at the top, 8 glacier panels fill a 2x4 grid below.
     # ------------------------------------------------------------------
-    print(f"      Creating satellite-basemap layout (portrait)...")
+    print("      Creating satellite-basemap layout (portrait)...")
 
     fig4 = plt.figure(figsize=(18, 30), constrained_layout=True)
     gs_outer4 = fig4.add_gridspec(2, 1, height_ratios=[2.3, 4.0])
@@ -1310,7 +1309,7 @@ def create_combined_dem_only_plot(all_glacier_bedrock_data, grid_info, preloaded
     if not all_glacier_bedrock_data:
         return
 
-    print(f"\n      Creating combined DEM-only plot...")
+    print("\n      Creating combined DEM-only plot...")
     n_cols, n_rows = 3, 3
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 18))
     axes = axes.flatten()

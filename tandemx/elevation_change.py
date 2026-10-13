@@ -152,7 +152,7 @@ def compute_elevation_change(resA, resB, yA, yB, grid_info, bad_mask, slope_mask
     }
 
 
-def calc_obs_period_r_style(dt_raster, glacier_mask):
+def calc_obs_period(dt_raster, glacier_mask):
     """
     Match R Stage 3:
     regional, glacier, stable observation-period summaries.

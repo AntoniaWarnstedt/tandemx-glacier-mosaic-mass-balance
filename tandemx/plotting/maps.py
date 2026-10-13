@@ -158,7 +158,7 @@ def plot_spatial_maps(all_changes, grid_info, bad_mask, mb_results=None, shp_pat
 
     # Combined 6-panel plot
     if len(all_plot_data) > 0:
-        print(f"\n   Creating combined 6-panel dhdt map...")
+        print("\n   Creating combined 6-panel dhdt map...")
 
         n_plots = min(3, len(all_plot_data))
         n_cols = 3
@@ -477,7 +477,7 @@ def build_period_uncertainty_maps(
         area_mask_option=cfg.AREA_MASK_OPTION,
     )
 
-    # same analysis domain as in calculate_mass_balance_following_r_logic
+    # same analysis domain as in calculate_mass_balance
     union_geom = inventory_area_stats["support_geom"]
     union_inventory_mask = rasterize_geometry_to_grid_mask(union_geom, grid_info, invert=True)
 
@@ -589,8 +589,6 @@ def plot_uncertainty_and_filtering_maps(
             STABLE_TERRAIN_DIR=STABLE_TERRAIN_DIR
         )
 
-        yA = layers["yA"]
-        yB = layers["yB"]
         period_label = layers["period_label"]
 
         dhdt_raw = layers["dhdt_raw"]

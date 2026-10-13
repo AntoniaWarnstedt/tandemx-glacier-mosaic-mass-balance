@@ -245,7 +245,7 @@ def compute_observed_support_areas_km2(dhdt_input, grid_info, start_geom, end_ge
     }
 
 
-def compute_area_perimeter_error_fraction_from_geom_r_style(geom):
+def compute_area_perimeter_error_fraction_from_geom(geom):
     """
     Compute area uncertainty fraction from a single geometry using the methods logic.
     Areafrac = (P_km / A_km2) * 0.006

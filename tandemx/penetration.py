@@ -189,7 +189,7 @@ def detect_penetration_break_elevation_slope_stratified(
     return {"classes": results, "verdict": verdict}
 
 
-def compute_sar_penetration_r_style(
+def compute_sar_penetration(
     ref_dem,
     dt_raster,
     glacier_mask,
@@ -341,7 +341,7 @@ def compute_sar_penetration_r_style(
                   f"-> correction {'APPLIED' if h_pen_min is not None else 'NOT applied'} "
                   f"({pen_break_source})")
         else:
-            print(f"      Penetration break-in-slope test: no bin stats -> correction NOT applied")
+            print("      Penetration break-in-slope test: no bin stats -> correction NOT applied")
 
     # CSV-exportable label of what the slope-stratified gatekeeper did.
     if explicit_band and not require_break:

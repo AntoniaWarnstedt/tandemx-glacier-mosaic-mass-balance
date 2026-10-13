@@ -372,7 +372,7 @@ def mosaic_year_v2(year_path, year_label, grid_info, bad_mask, x_coords, y_coord
     strips_fp    = [strips_fp[i]    for i in sort_order]
     strips_info  = [strips_info[i]  for i in sort_order]
 
-    print(f"\n   Building mosaic (largest strip first, iterative de-ramping, feathered overlaps)...")
+    print("\n   Building mosaic (largest strip first, iterative de-ramping, feathered overlaps)...")
 
     ref      = strips_data[0].astype(np.float64)
     w_ref    = feather_weights(ref)
@@ -562,7 +562,7 @@ def merge_multiyear_dems(year_results, years_to_merge, grid_info, bad_mask, x_co
     sids_to_merge  = [sids_to_merge[i]  for i in sort_order]
     years_sorted   = [years_to_merge[i] for i in sort_order]
 
-    print(f"\n   Building merged mosaic (largest coverage first, iterative de-ramping, feathered overlaps)...")
+    print("\n   Building merged mosaic (largest coverage first, iterative de-ramping, feathered overlaps)...")
 
     ref       = dems_to_merge[0].astype(np.float64)
     ref_date  = dates_to_merge[0]

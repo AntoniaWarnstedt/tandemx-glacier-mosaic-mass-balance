@@ -85,7 +85,7 @@ def process_year(year, roi_gdf, results, use_aggregation=True):
     with rasterio.open(dem_path) as src:
         dem_crs = src.crs
 
-    print(f"  Loading ICESat-2 data...")
+    print("  Loading ICESat-2 data...")
     gdfs = [gpd.read_file(p) for p in existing_is2]
     is2_gdf = pd.concat(gdfs, ignore_index=True) if len(gdfs) > 1 else gdfs[0]
 

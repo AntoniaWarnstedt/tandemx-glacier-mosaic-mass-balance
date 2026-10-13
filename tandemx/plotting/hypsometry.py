@@ -194,7 +194,7 @@ def plot_hypsometric_analysis(all_changes, year_results, mb_results=None, bin_si
     cmap = plt.cm.RdBu
 
     colors = cmap(norm(mean_dhdt))
-    bars = ax.bar(bin_centers, area_km2, width=bin_size * 0.9,
+    ax.bar(bin_centers, area_km2, width=bin_size * 0.9,
                   color=colors, edgecolor='black', linewidth=0.5, alpha=0.8)
 
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
@@ -468,13 +468,9 @@ def plot_mass_balance_uncertainty_paper(mb_results, show_bin_errorbars=True):
         if not required_cols.issubset(set(stats.columns)):
             continue
 
-        inv_stats = res.get("inventory_area_stats", {})
-        obs_stats = res.get("obs_area_stats", {})
 
         x = stats["cl"].values.astype(float)
         n_ref = stats["n_ref"].fillna(0).astype(float).values
-        n_fil = stats["n_fil"].fillna(0).astype(float).values
-        n_raw = stats["n_raw"].fillna(0).astype(float).values
 
         if np.nansum(n_ref) <= 0:
             continue

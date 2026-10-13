@@ -20,7 +20,7 @@ from tandemx.export import (
     save_regional_mass_balance_summary_main_results,
     save_regional_mass_balance_summary_paper,
 )
-from tandemx.mass_balance import calculate_mass_balance_following_r_logic
+from tandemx.mass_balance import calculate_mass_balance
 from tandemx.mosaicking import merge_multiyear_dems, mosaic_year_v2
 from tandemx.penetration import resolve_penetration_ramp
 from tandemx.state import save_state
@@ -78,7 +78,7 @@ def main():
     # 5. Mass balance per period
     mb_results = []
     for change in all_changes:
-        res = calculate_mass_balance_following_r_logic(
+        res = calculate_mass_balance(
             change_dict=change,
             year_results=year_results,
             grid_info=grid_info,
