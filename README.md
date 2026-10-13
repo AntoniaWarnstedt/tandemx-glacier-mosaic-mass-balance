@@ -16,7 +16,7 @@ The code covers four steps:
 
 1. **ICESat-2 filtering.** Cleaning of repeat-track and crossover dh/dt points.
 2. **ICESat-2 interpolation.** Gridding of the repeat-track dh/dt.
-3. **TanDEM-X.** DEM mosaicking, dh/dt, void filling, uncertainty assessment, SAR-penetration correction and geodetic mass balance.
+3. **TanDEM-X.** DEM mosaicking, dh/dt, void filling and mass balance with uncertainty assessment.
 4. **Validation.** TanDEM-X elevations and dh/dt compared with CryoSat-2 and ICESat-2.
 
 ## Repository structure
