@@ -110,7 +110,7 @@ All data are expected in one projected CRS (`tandemx/config.py: CRS`, default EP
 | Data | Format | Config variable |
 |---|---|---|
 | ICESat-2 repeat-track dh/dt ([captoolkit](https://github.com/fspaolo/captoolkit) `fitsec.py`; columns `p1`, `p1_err`) | shapefile | `icesat2/config.py: RT_INPUT` |
-| ICESat-2 crossover dh/dt (captoolkit `xover.py`; columns `dhdt`, `dh_elv`, `dt_year`, `slp_1`, `slp_2`) | shapefile | `XO_INPUT` |
+| ICESat-2 crossover dh/dt ([captoolkit](https://github.com/fspaolo/captoolkit) `xover.py`; columns `dhdt`, `dh_elv`, `dt_year`, `slp_1`, `slp_2`) | shapefile | `XO_INPUT` |
 | TanDEM-X DEM strips, co-registered and referenced to EGM2008 (`DEM*.tif`, acquisition date in file name) | GeoTIFF, one folder per year | `tandemx/config.py: TDX_YEARS`, `DEM_DIR_TEMPLATE` |
 | Glacier / catchment outlines per year | shapefile | `OUTLINE_TEMPLATE`, `GLACIER_INVENTORY_MAP` |
 | Reference DEM (or derived products) | GeoTIFF | `REF_DEM_SOURCE`, `REF_PRODUCTS_DIR` |
