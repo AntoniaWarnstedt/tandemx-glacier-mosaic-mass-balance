@@ -59,11 +59,11 @@ REGION_LABEL = "Study region"        # region name written to the summary tables
 # MERGED_EPOCHS = [["2016", "2017"], ["2024", "2025"]]
 # DEM_DIR_TEMPLATE = os.path.join(DATA_DIR, "tandemx", "{year}", "DEM_VAL", "all")
 # GLACIER_INVENTORY_MAP = {
-#     "2014": {"shp": "mask_glacier_2014_n.shp"},
-#     "2016-2017": {"shp": "mask_glacier_2016_n.shp"},
-#     "2024-2025": {"shp": "mask_glacier_2024_n.shp"},
+#     "2014": {"shp": "mask_glacier_2014.shp"},
+#     "2016-2017": {"shp": "mask_glacier_2017.shp"},
+#     "2024-2025": {"shp": "mask_glacier_2025.shp"},
 # }
-# DEFAULT_GLACIER_SHP = os.path.join(GLACIER_MASK_DIR, "mask_glacier_2014_n.shp")
+# DEFAULT_GLACIER_SHP = os.path.join(GLACIER_MASK_DIR, "mask_glacier_2014.shp")
 # REGION_LABEL = "Wordie"
 
 # Derived from the settings above (normally no need to edit).
