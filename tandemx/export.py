@@ -229,7 +229,7 @@ def save_regional_mass_balance_summary_main_results(mb_results, out_dir):
             "area_observed_support_raw_km2": obs_area.get("Observed_inventory_area_union_km2"),
             "area_mean_start_end_km2": inv.get("Inventory_area_mean_km2"),
             "area_inventory_catchment_km2": catchment_area_km2,
-            "coverage_vs_inventory_catchment_pct": cov.get("coverage_vs_inventory_mean_pct"),
+            "coverage_vs_inventory_catchment_pct": cov.get("coverage_vs_inventory_union_pct"),
 
             # Elevation-change products
             "dhdt_raw_observed_support_myr": dhdt.get("dhdt_observed_union_myr"),
@@ -326,7 +326,7 @@ def save_regional_mass_balance_summary_paper(mb_results, out_dir):
             "area_observed_support_raw_km2": obs_area.get("Observed_inventory_area_union_km2"),
             "area_mean_start_end_km2": inv.get("Inventory_area_mean_km2"),
             "area_inventory_catchment_km2": inv.get("Inventory_area_mean_km2"),
-            "coverage_vs_inventory_catchment_pct": cov.get("coverage_vs_inventory_mean_pct"),
+            "coverage_vs_inventory_catchment_pct": cov.get("coverage_vs_inventory_union_pct"),
 
             "dhdt_raw_observed_support_myr": dhdt.get("dhdt_observed_union_myr"),
             "dhdt_filled_glacierwide_myr": dhdt.get("dhdt_voidfilled_union_myr"),
