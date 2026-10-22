@@ -8,13 +8,14 @@ import warnings
 import numpy as np
 import pandas as pd
 import rasterio
-from scipy.ndimage import binary_dilation
+from scipy.ndimage import binary_dilation, binary_fill_holes
 
 from . import config as cfg
 from .utils import (
     canonical_period_key,
     nan_median_filter,
     parse_period,
+    reject_abs_rate,
     remove_seam_ring,
     resample_to_grid,
 )
@@ -30,10 +31,14 @@ def build_paper_stable_terrain_domain(
     pixel_size = float(grid_info["resolution"])
     n_iter = int(np.ceil(buffer_distance_m / pixel_size))
 
-    # Glacier + 10 km buffer search domain
-    search_domain = binary_dilation(glacier_mask_bool.astype(bool), iterations=n_iter)
+    # Catchment (outer outline, holes filled -> nunataks inside included)
+    search_domain = binary_fill_holes(glacier_mask_bool.astype(bool))
+    # plus optional buffer outside the catchment (binary_dilation with
+    # iterations=0 would dilate until convergence, hence the check)
+    if n_iter > 0:
+        search_domain = binary_dilation(search_domain, iterations=n_iter)
 
-    # Stable terrain = within the 10km buffer AND is actually rock outcrop
+    # Stable terrain = inside that domain AND rock outcrop
     stable_domain = search_domain & rock_mask_bool
 
     if water_mask_bool is not None:
@@ -128,7 +133,7 @@ def build_stable_dhdt_from_yearly_stable_dems(
     yA, yB, year_results, grid_info, STABLE_TERRAIN_DIR
 ):
     """Build stable-terrain dh/dt from yearly stable-ground DEM rasters."""
-    if cfg.STABLE_TERRAIN_SOURCE == "mosaic":
+    if cfg.STABLE_TERRAIN_SOURCE in ("mosaic", "dem_rock"):
         return None
     if cfg.STABLE_TERRAIN_SOURCE == "stb_mosaic":
         return build_stable_dhdt_from_stb_mosaics(yA, yB, year_results)
@@ -198,10 +203,11 @@ def build_stable_dhdt_from_stb_mosaics(yA, yB, year_results):
     dt = np.where(~np.isfinite(dt) | (np.abs(dt) < 0.1), simple_dt, dt)
     with np.errstate(invalid='ignore', divide='ignore'):
         dhdt = np.where(np.isfinite(dh), dh / dt, np.nan)
-    dhdt = np.clip(dhdt, -30, 30)
+    data_voids = ~np.isfinite(dhdt)          # real voids, before rejection
+    dhdt = reject_abs_rate(dhdt)
     dhdt = nan_median_filter(dhdt, size=3)
-    dhdt = remove_seam_ring(dhdt, cfg.SEAM_RING_REMOVE_PX)
-    dhdt = np.clip(dhdt, -30, 30)
+    dhdt = remove_seam_ring(dhdt, cfg.SEAM_RING_REMOVE_PX, void_mask=data_voids)
+    dhdt = reject_abs_rate(dhdt)
     print(f"      Stable-ground mosaics {yA} / {yB}: {int(np.isfinite(dhdt).sum()):,} common px")
     return dhdt.astype(np.float32)
 
@@ -266,7 +272,7 @@ def write_stable_by_strip_table(yA, yB, year_results, stable_dhdt, dhdt_dem,
               f"stable-ground mosaic {both.stb.median():+.2f} vs DEM mosaic {both.dem.median():+.2f} m a-1")
 
 
-def filter_stable_bin(values):
+def filter_stable_bin_r_style(values):
     """
     Match the paper method more closely for stable terrain:
     - hard filter abs(z) <= 50
@@ -285,7 +291,7 @@ def filter_stable_bin(values):
     return filtered, lo, hi
 
 
-def compute_stable_slope_error(
+def compute_stable_slope_error_r_style(
     stable_dhdt,
     slope_bins,
     glacier_mask,
@@ -324,7 +330,7 @@ def compute_stable_slope_error(
         medi_raw = np.median(raw_vals) if n_raw > 0 else np.nan
         sdev_raw = np.std(raw_vals, ddof=1) if n_raw > 1 else np.nan
 
-        fil_vals, lo, hi = filter_stable_bin(raw_vals)
+        fil_vals, lo, hi = filter_stable_bin_r_style(raw_vals)
 
         n_fil = len(fil_vals)
         mean_fil = np.mean(fil_vals) if n_fil > 0 else np.nan
@@ -347,11 +353,11 @@ def compute_stable_slope_error(
         })
 
     bin_stats = pd.DataFrame(rows).sort_values("cl").reset_index(drop=True)
-    reg_error = summarize_stable_error(bin_stats, pixel_area_m2)
+    reg_error = summarize_stable_error_r_style(bin_stats, pixel_area_m2)
     return bin_stats, reg_error
 
 
-def summarize_stable_error(bin_stats, pixel_area_m2):
+def summarize_stable_error_r_style(bin_stats, pixel_area_m2):
     """
     Match calc_regional_error() from R.
     """

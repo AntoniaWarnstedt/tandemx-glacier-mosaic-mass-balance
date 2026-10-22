@@ -189,7 +189,7 @@ def detect_penetration_break_elevation_slope_stratified(
     return {"classes": results, "verdict": verdict}
 
 
-def compute_sar_penetration(
+def compute_sar_penetration_r_style(
     ref_dem,
     dt_raster,
     glacier_mask,
@@ -341,7 +341,7 @@ def compute_sar_penetration(
                   f"-> correction {'APPLIED' if h_pen_min is not None else 'NOT applied'} "
                   f"({pen_break_source})")
         else:
-            print("      Penetration break-in-slope test: no bin stats -> correction NOT applied")
+            print(f"      Penetration break-in-slope test: no bin stats -> correction NOT applied")
 
     # CSV-exportable label of what the slope-stratified gatekeeper did.
     if explicit_band and not require_break:
@@ -603,10 +603,11 @@ def estimate_penetration_onset_from_period_consistency(all_changes, elev_bins,
     return out
 
 
-def resolve_penetration_ramp(all_changes, elev_bins):
+def resolve_penetration_ramp(all_changes, elev_bins, ref_dem=None, catchment_extent=None):
     """
     Set the onset (cfg.SAR_PEN_START_ELEV) and end (cfg.SAR_PEN_END_ELEV) of
     the penetration ramp used for all periods and return the onset estimate.
+    ref_dem / catchment_extent are needed for SAR_PEN_RAMP_WIDTH_M = "catchment_max".
     """
     if isinstance(cfg.SAR_PEN_ONSET_MODE, str) and cfg.SAR_PEN_ONSET_MODE == "auto":
         onset = estimate_penetration_onset_from_period_consistency(
@@ -622,7 +623,23 @@ def resolve_penetration_ramp(all_changes, elev_bins):
     if cfg.SAR_PEN_RAMP_WIDTH_M == "auto":
         slp = onset.get("slope_m_per_m") if onset.get("z0") is not None else None
         width = (cfg.SAR_PEN_BIAS / slp) if (slp is not None and slp > 0) else cfg.SAR_PEN_RAMP_WIDTH_FALLBACK_M
-        width = float(np.clip(width, 300.0, 2000.0))
+        width_fit = float(width)
+        width = max(width_fit, cfg.SAR_PEN_RAMP_WIDTH_MIN_M)
+        if cfg.SAR_PEN_RAMP_WIDTH_MAX_M is not None:
+            width = min(width, cfg.SAR_PEN_RAMP_WIDTH_MAX_M)
+        if width != width_fit:
+            print(f"   ⚠️  Ramp width {width_fit:.0f} m limited to {width:.0f} m -- the ramp "
+                  f"no longer follows the fitted gradient.")
+    elif cfg.SAR_PEN_RAMP_WIDTH_M == "catchment_max":
+        _zc = ref_dem[catchment_extent & np.isfinite(ref_dem)]
+        z_max_catch = float(np.nanmax(_zc)) if _zc.size else np.nan
+        if np.isfinite(z_max_catch) and z_max_catch > z0:
+            width = z_max_catch - z0
+            print(f"   Ramp end = highest catchment elevation (reference DEM): "
+                  f"{z_max_catch:.0f} m a.s.l. -> ramp length {width:.0f} m above z0 = {z0:.0f} m")
+        else:
+            width = cfg.SAR_PEN_RAMP_WIDTH_FALLBACK_M
+            print(f"   ⚠️  Catchment maximum elevation not usable -- fallback ramp length {width:.0f} m")
     else:
         width = float(cfg.SAR_PEN_RAMP_WIDTH_M)
 

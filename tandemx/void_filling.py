@@ -9,7 +9,7 @@ from . import config as cfg
 from .utils import nan_median_filter
 
 
-def filter_glacier_bin(values):
+def filter_glacier_bin_r_style(values):
     """
     Per-bin outlier filter: keep values within the 2nd-98th percentile of the
     bin, applied to ALL bins regardless of pixel count.
@@ -27,10 +27,10 @@ def filter_glacier_bin(values):
     return filtered, lo, hi, "quan"
 
 
-def apply_tail_bin_cleanup(bin_stats, min_valid_n_raw=100):
+def apply_r_style_tail_bin_cleanup(bin_stats, min_valid_n_raw=100):
     """
-    Remove trailing highest bins with too few measurements before void
-    filling.
+    Match the R logic that removes trailing highest bins with too few
+    measurements before void filling.
     """
     if bin_stats is None or bin_stats.empty:
         return bin_stats
@@ -90,12 +90,28 @@ def fill_void_bins_mcnabb_style(bin_centers, values, poly_degree=3,
         out[~valid] = np.polyval(coeffs, x[~valid] - x0)
     else:
         # Fallback -- see FALLBACK note above; not part of McNabb et al. (2019).
+        # np.interp holds the end values constant outside the valid range.
         out[~valid] = np.interp(x[~valid], x[valid], y[valid])
+
+    # Bins outside the observed elevation range: constant end-bin value
+    # instead of the extrapolated polynomial (cfg.VOID_FILL_EXTRAPOLATION).
+    if cfg.VOID_FILL_EXTRAPOLATION == "end_bin":
+        xv = x[valid]
+        lo_val = y[valid][np.argmin(xv)]
+        hi_val = y[valid][np.argmax(xv)]
+        below = (~valid) & (x < xv.min())
+        above = (~valid) & (x > xv.max())
+        out[below] = lo_val
+        out[above] = hi_val
+        if below.any() or above.any():
+            print(f"      Void fill (end_bin): {int(below.sum())} bins below "
+                  f"{xv.min():.0f} m set to {lo_val:+.3f}, {int(above.sum())} bins "
+                  f"above {xv.max():.0f} m set to {hi_val:+.3f}")
 
     return out
 
 
-def compute_on_ice_bin_statistics(dhdt_on_ice, elev_bins, glacier_mask, min_pixels=cfg.MIN_BIN_PIXELS):
+def compute_on_ice_bin_statistics_r_style(dhdt_on_ice, elev_bins, glacier_mask, min_pixels=cfg.MIN_BIN_PIXELS):
     """
     Hypsometric bin statistics following McNabb et al. (2019) / Sommer et al.
     (2022).
@@ -127,7 +143,7 @@ def compute_on_ice_bin_statistics(dhdt_on_ice, elev_bins, glacier_mask, min_pixe
             medi_raw = np.median(raw_vals_valid)
             sdev_raw = np.std(raw_vals_valid, ddof=1) if n_raw > 1 else np.nan
 
-            fil_vals, lo, hi, fil_id = filter_glacier_bin(raw_vals_valid)
+            fil_vals, lo, hi, fil_id = filter_glacier_bin_r_style(raw_vals_valid)
             n_fil = len(fil_vals)
 
             if n_fil >= min_pixels:
@@ -156,7 +172,7 @@ def compute_on_ice_bin_statistics(dhdt_on_ice, elev_bins, glacier_mask, min_pixe
 
     # Clean extreme trailing edges (belt-and-suspenders alongside the
     # general min_pixels rejection above)
-    bin_stats = apply_tail_bin_cleanup(bin_stats, min_valid_n_raw=min_pixels)
+    bin_stats = apply_r_style_tail_bin_cleanup(bin_stats, min_valid_n_raw=min_pixels)
 
     # McNabb et al. (2019)-style void-bin fill: cubic polynomial fit when
     # valid-bin elevation coverage allows (their stated two-thirds criterion),
@@ -181,7 +197,7 @@ def compute_on_ice_bin_statistics(dhdt_on_ice, elev_bins, glacier_mask, min_pixe
     return bin_stats
 
 
-def summarize_regional_on_ice_change(bin_stats, pixel_area_m2):
+def summarize_regional_on_ice_change_r_style(bin_stats, pixel_area_m2):
     """
     Match calc_regional_change() from R.
     """
@@ -234,9 +250,9 @@ def summarize_regional_on_ice_change(bin_stats, pixel_area_m2):
 
 def expand_bin_stats_for_void_fill(bin_stats, elev_bins, wide_mask):
     """
-    compute_on_ice_bin_statistics's `bin_ids` (the set of elevation
+    compute_on_ice_bin_statistics_r_style's `bin_ids` (the set of elevation
     bins that get a row at all) comes from wherever `glacier_mask==1`, which at
-    both call sites in calculate_mass_balance is
+    both call sites in calculate_mass_balance_following_r_logic is
     `obs_union_mask` -- the OBSERVED-support footprint (union of pixels
     actually covered by data this period), not the full glacier/catchment
     extent.

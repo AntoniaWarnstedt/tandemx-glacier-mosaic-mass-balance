@@ -2,19 +2,15 @@
 scale bar, north arrow and legend layout.
 """
 
-import glob
-import os
-import re
 
 import geopandas as gpd
-import matplotlib.colors as mcolors
 import matplotlib.offsetbox as moffsetbox
 import matplotlib.patheffects as pe
 import matplotlib.ticker as mticker
 import numpy as np
 
 from .. import config as cfg
-from .centerline_geometry import get_centerline_plot_segment
+from .centerline_geometry import get_centerline_plot_segment, glacier_name_from_file, list_centerline_files
 from ..utils import get_longest_linestring
 
 try:
@@ -24,46 +20,106 @@ except ImportError:
     HAS_CONTEXTILY = False
 
 
-def format_coord_labels(ax, target_crs=None):
-    """Format axis labels to show degrees instead of projected coordinates."""
+def _fmt_dms(value, is_lon):
+    """-69.5 -> 69°30′W ; -70.0 -> 70°S (QGIS-style labels)."""
+    hemi = ('E' if value >= 0 else 'W') if is_lon else ('N' if value >= 0 else 'S')
+    total_min = int(round(abs(value) * 60))
+    d, m = divmod(total_min, 60)
+    return f"{d}°{m:02d}′{hemi}" if m else f"{d}°{hemi}"
+
+
+# Candidate graticule spacings in degrees (5', 10', 15', 20', 30', 1°, 2°, 5°, 10°).
+GRATICULE_STEPS_DEG = (5 / 60, 10 / 60, 15 / 60, 20 / 60, 0.5, 1.0, 2.0, 5.0, 10.0)
+
+
+def format_coord_labels(ax, target_crs=None, max_per_edge=4, min_sep_frac=0.12):
+    """
+    Label the bottom and left map frame where meridians / parallels really
+    cross that edge (QGIS-style graticule labels such as "68°30′W" or
+    "70°S"). In polar stereographic projections meridians and parallels are
+    rotated against the axes, so each edge is labelled with the quantity that
+    changes most along it.
+    """
     from pyproj import Transformer
 
-    target_crs = target_crs or cfg.CRS
-    # Get current tick locations
-    xticks = ax.get_xticks()
-    yticks = ax.get_yticks()
+    crs = target_crs or cfg.CRS
+    tr = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
 
-    # Create transformer from projected CRS to WGS84 (lat/lon)
-    transformer = Transformer.from_crs(target_crs, "EPSG:4326", always_xy=True)
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    x0, x1 = sorted(xlim)
+    y0, y1 = sorted(ylim)
+    n = 600
 
-    # Convert x-ticks (Easting to Longitude)
-    xlabels = []
-    for x in xticks:
-        # Use middle of plot for y-coordinate during conversion
-        y_mid = (ax.get_ylim()[0] + ax.get_ylim()[1]) / 2
-        lon, lat = transformer.transform(x, y_mid)
-        xlabels.append(f"{lon:.2f}°")
+    def edge_lonlat(xs, ys):
+        lon, lat = tr.transform(xs, ys)
+        lon = np.degrees(np.unwrap(np.radians(np.asarray(lon, float))))
+        return lon, np.asarray(lat, float)
 
-    # Convert y-ticks (Northing to Latitude)
-    ylabels = []
-    for y in yticks:
-        # Use middle of plot for x-coordinate during conversion
-        x_mid = (ax.get_xlim()[0] + ax.get_xlim()[1]) / 2
-        lon, lat = transformer.transform(x_mid, y)
-        ylabels.append(f"{lat:.2f}°")
+    def crossings(pos, vals, step):
+        """Positions along the edge where vals crosses a multiple of step."""
+        out = []
+        lo, hi = np.nanmin(vals), np.nanmax(vals)
+        k0, k1 = int(np.ceil(lo / step - 1e-9)), int(np.floor(hi / step + 1e-9))
+        for k in range(k0, k1 + 1):
+            target = k * step
+            d = vals - target
+            idx = np.where(np.sign(d[:-1]) * np.sign(d[1:]) <= 0)[0]
+            for i in idx:
+                if d[i] == d[i + 1]:
+                    continue
+                t = d[i] / (d[i] - d[i + 1])
+                p = pos[i] + t * (pos[i + 1] - pos[i])
+                if not out or all(abs(p - q[0]) > 1e-6 * (pos[-1] - pos[0]) for q in out):
+                    out.append((p, target))
+        return out
 
-    ax.set_xticklabels(xlabels)
-    ax.set_yticklabels(ylabels)
-    ax.set_xlabel("Longitude", fontsize=12)
-    ax.set_ylabel("Latitude", fontsize=12)
+    def pick_step(vals):
+        rng = np.nanmax(vals) - np.nanmin(vals)
+        for s in GRATICULE_STEPS_DEG:
+            if rng / s <= max_per_edge:
+                return s
+        return GRATICULE_STEPS_DEG[-1]
 
+    def edge_ticks(pos, lon, lat):
+        mid_lat = np.radians(np.nanmean(lat))
+        # Ground distance (km) each quantity spans along this edge; the one
+        # that changes more is the natural label for the edge and goes first.
+        span_lon = (np.nanmax(lon) - np.nanmin(lon)) * 111.32 * np.cos(mid_lat)
+        span_lat = (np.nanmax(lat) - np.nanmin(lat)) * 110.57
+        cands = [(span_lon, [(p, _fmt_dms(v, True)) for p, v in crossings(pos, lon, pick_step(lon))]),
+                 (span_lat, [(p, _fmt_dms(v, False)) for p, v in crossings(pos, lat, pick_step(lat))])]
+        cands.sort(key=lambda c: -c[0])
+        min_sep = min_sep_frac * (pos[-1] - pos[0])
+        kept = []
+        # Label the edge with its dominant quantity only; fall back to the
+        # other one just to reach at least two labels on short edges.
+        for i, (_, items) in enumerate(cands):
+            if i > 0 and len(kept) >= 2:
+                break
+            for p, lab in items:
+                if all(abs(p - q) >= min_sep for q, _ in kept):
+                    kept.append((p, lab))
+        kept.sort()
+        return [p for p, _ in kept], [lab for _, lab in kept]
 
-def build_years_colormap(num_years):
-    """Create a smooth colormap."""
-    continuous = mcolors.LinearSegmentedColormap.from_list("blue_purple_pink", cfg.GRADIENT_COLORS, N=512)
-    sample_points = np.linspace(0, 1, num_years)
-    rgba = continuous(sample_points)
-    return rgba
+    xs = np.linspace(x0, x1, n)
+    lon_b, lat_b = edge_lonlat(xs, np.full(n, y0))          # bottom edge
+    ys = np.linspace(y0, y1, n)
+    lon_l, lat_l = edge_lonlat(np.full(n, x0), ys)          # left edge
+
+    xt, xl = edge_ticks(xs, lon_b, lat_b)
+    yt, yl = edge_ticks(ys, lon_l, lat_l)
+
+    ax.set_xticks(xt)
+    ax.set_xticklabels(xl)
+    ax.set_yticks(yt)
+    ax.set_yticklabels(yl)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    # The labels carry their own W/S suffix (an edge can show both
+    # meridians and parallels), so no "Longitude"/"Latitude" axis titles.
+    ax.set_xlabel("")
+    ax.set_ylabel("")
 
 
 def hyps_bin_areas_km2(res, stats):
@@ -88,7 +144,7 @@ def hyps_bin_areas_km2(res, stats):
     return out
 
 
-def add_satellite_basemap_panel(ax, grid_info, all_glacier_bedrock_data, mask_path=None,
+def add_satellite_basemap_panel(ax, grid_info, glacier_profiles, mask_path=None,
                                  target_aspect=None, zoom_to_centerlines=True,
                                  centerline_zoom_pad_frac=0.18,
                                  centerline_zoom_pad_min_m=300.0):
@@ -105,16 +161,11 @@ def add_satellite_basemap_panel(ax, grid_info, all_glacier_bedrock_data, mask_pa
         # Load centerlines once, up front.
         # --------------------------------------------------------------
         centerline_records = []  # list of (glacier_name, longest_linestring_geom)
-        if cfg.CENTERLINE_DIR and os.path.exists(cfg.CENTERLINE_DIR):
-            for centerline_file in glob.glob(os.path.join(cfg.CENTERLINE_DIR, "*.shp")):
-                cl_gdf = gpd.read_file(centerline_file).to_crs(grid_info['crs'])
-                centerline_name = os.path.splitext(os.path.basename(centerline_file))[0]
-                g_name = centerline_name.replace('Centerline_', '')
-                g_name = re.sub(r'_\d{2}$', '', g_name).replace('_', ' ')
-
-                cl_geom = get_longest_linestring(cl_gdf.unary_union)
-                if cl_geom:
-                    centerline_records.append((g_name, cl_geom))
+        for centerline_file in list_centerline_files():
+            cl_gdf = gpd.read_file(centerline_file).to_crs(grid_info['crs'])
+            cl_geom = get_longest_linestring(cl_gdf.unary_union)
+            if cl_geom:
+                centerline_records.append((glacier_name_from_file(centerline_file), cl_geom))
 
         if zoom_to_centerlines and centerline_records:
             bounds = np.array([geom.bounds for _, geom in centerline_records])
@@ -171,7 +222,7 @@ def add_satellite_basemap_panel(ax, grid_info, all_glacier_bedrock_data, mask_pa
                                path_effects=outline_effect)
 
         glacier_name_to_number = {name: data.get('glacier_number', 0) for name, data in
-                                  all_glacier_bedrock_data.items()}
+                                  glacier_profiles.items()}
         for g_name, cl_geom in centerline_records:
             cl_geom_plot = get_centerline_plot_segment(cl_geom)
             ax.plot(*cl_geom_plot.xy, color='maroon', linewidth=2.2, zorder=10, alpha=0.9,
@@ -442,20 +493,10 @@ def _match_legend_panel_to_map(fig, ax_map, ax_leg):
     ax_leg.set_in_layout(False)
 
 
-def with_bedrock_source(text, sep=" - "):
-    """Append cfg.BEDROCK_SOURCE to a label, if set."""
-    return f"{text}{sep}{cfg.BEDROCK_SOURCE}" if cfg.BEDROCK_SOURCE else text
-
-
-def terminus_color(year, dem_panels=False, default="black"):
-    """Colour of the terminus line/segment of an outline year.
-
-    Uses cfg.TERMINUS_COLORS (or cfg.TERMINUS_COLORS_DEM_PANELS); years not
-    listed get a grey ramp from light (first year) to black (last year).
-    """
+def terminus_color(year, default="black"):
+    """Colour of the terminus line of an outline year: cfg.TERMINUS_COLORS, or
+    a grey ramp from light (first year) to black (last year) for years not listed."""
     colors = cfg.TERMINUS_COLORS
-    if dem_panels and cfg.TERMINUS_COLORS_DEM_PANELS:
-        colors = cfg.TERMINUS_COLORS_DEM_PANELS
     if year in colors:
         return colors[year]
     years = sorted(cfg.YEAR_MASKS, key=int)

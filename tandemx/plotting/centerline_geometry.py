@@ -1,14 +1,30 @@
-"""Centerline helpers: clipping to yearly outlines, sampling rasters along a
-centerline swath and grounding-line position.
+"""Centerline helpers: centerline files, clipping to yearly outlines and
+sampling rasters along a centerline swath.
 """
 
+import glob
 import os
+import re
 
 import geopandas as gpd
 import numpy as np
 
 from .. import config as cfg
-from ..utils import get_longest_linestring, longest_change, mask_year_for_label
+from ..utils import get_longest_linestring, mask_year_for_label
+
+
+def list_centerline_files():
+    """Centerline shapefiles in cfg.CENTERLINE_DIR, sorted by name; glaciers are
+    numbered [1], [2], ... in this order in all figures."""
+    if not cfg.CENTERLINE_DIR or not os.path.exists(cfg.CENTERLINE_DIR):
+        return []
+    return sorted(glob.glob(os.path.join(cfg.CENTERLINE_DIR, "*.shp")))
+
+
+def glacier_name_from_file(centerline_file):
+    """'Centerline_Fleming_04.shp' -> 'Fleming'."""
+    name = os.path.splitext(os.path.basename(centerline_file))[0].replace('Centerline_', '')
+    return re.sub(r'_\d{2}$', '', name).replace('_', ' ')
 
 
 def clip_centerline_to_mask(centerline, mask_path, target_crs):
@@ -59,46 +75,6 @@ def get_segment_distance_range_on_centerline(centerline, segment):
     d1 = centerline.project(end_pt)
 
     return min(d0, d1), max(d0, d1)
-
-
-def get_grounding_line_distance_on_centerline(centerline, grounding_line_geom):
-    """
-    Return the distance along `centerline` (in the same, UNSHIFTED coordinate
-    system as get_segment_distance_range_on_centerline's d0/d1 -- i.e. before
-    the per-glacier offset_m re-anchoring applied by callers) where it crosses
-    `grounding_line_geom`, or None if they don't intersect.
-    """
-    if grounding_line_geom is None or centerline is None or centerline.is_empty:
-        return None
-
-    try:
-        inter = centerline.intersection(grounding_line_geom)
-    except Exception:
-        return None
-
-    if inter.is_empty:
-        return None
-
-    from shapely.geometry import Point
-
-    points = []
-    geoms = list(inter.geoms) if hasattr(inter, 'geoms') else [inter]
-    for g in geoms:
-        if g.is_empty:
-            continue
-        if g.geom_type == 'Point':
-            points.append(g)
-        elif hasattr(g, 'coords') and len(g.coords) > 0:
-            # A LineString-type overlap (rare -- would mean the two lines
-            # run along each other for a stretch rather than crossing at a
-            # point); fall back to its first vertex as a representative point.
-            points.append(Point(g.coords[0]))
-
-    if not points:
-        return None
-
-    distances = [centerline.project(p) for p in points]
-    return min(distances)
 
 
 def sample_raster_along_line_with_buffer(raster_data, transform, line, sampling_dist,
@@ -236,59 +212,3 @@ def get_centerline_plot_segment(line, max_distance=cfg.CENTERLINE_MAX_DISTANCE):
     return substring(line, 0, length)
 
 
-def find_preferred_change(all_changes, preferred_periods):
-    """Find the preferred change period for map display."""
-    for yA_pref, yB_pref in preferred_periods:
-        for change in all_changes:
-            if change['yA'] == yA_pref and change['yB'] == yB_pref:
-                return change
-    return longest_change(all_changes)
-
-
-def _ice_fill_arrays_split_at_grounding_line(distances_plot, values_plot, bedrock_interp,
-                                              bedrock_dist_clipped, bedrock_val_clipped,
-                                              grounding_line_distance_m):
-    """
-    Build (x_km, lower, upper) arrays for a single fill_between call that
-    shades a year's surface-to-bed as solid ice landward of the grounding line,
-    and surface-to-sea-level (freeboard only -- the true floating ice base
-    isn't known here) seaward of it.
-    """
-    finite = np.isfinite(values_plot) & np.isfinite(bedrock_interp)
-
-    if grounding_line_distance_m is None:
-        keep = finite & (values_plot >= bedrock_interp)
-        if not np.any(keep):
-            return None, None, None
-        return distances_plot[keep] / 1000.0, bedrock_interp[keep], values_plot[keep]
-
-    floating_mask = finite & (distances_plot < grounding_line_distance_m) & (values_plot >= 0)
-    grounded_mask = finite & (distances_plot >= grounding_line_distance_m) & (values_plot >= bedrock_interp)
-
-    gl_bed = np.interp(grounding_line_distance_m, bedrock_dist_clipped, bedrock_val_clipped,
-                        left=np.nan, right=np.nan)
-    gl_surf = (np.interp(grounding_line_distance_m, distances_plot, values_plot, left=np.nan, right=np.nan)
-               if len(distances_plot) > 1 else np.nan)
-    have_transition = (
-        np.isfinite(gl_bed) and np.isfinite(gl_surf) and gl_surf >= 0
-        and np.any(floating_mask) and np.any(grounded_mask)
-    )
-
-    x_parts, lo_parts, hi_parts = [], [], []
-    if np.any(floating_mask):
-        x_parts.append(distances_plot[floating_mask] / 1000.0)
-        lo_parts.append(np.zeros(int(np.sum(floating_mask))))
-        hi_parts.append(values_plot[floating_mask])
-    if have_transition:
-        gl_km = grounding_line_distance_m / 1000.0
-        x_parts.append(np.array([gl_km, gl_km]))
-        lo_parts.append(np.array([0.0, gl_bed]))
-        hi_parts.append(np.array([gl_surf, gl_surf]))
-    if np.any(grounded_mask):
-        x_parts.append(distances_plot[grounded_mask] / 1000.0)
-        lo_parts.append(bedrock_interp[grounded_mask])
-        hi_parts.append(values_plot[grounded_mask])
-
-    if not x_parts:
-        return None, None, None
-    return np.concatenate(x_parts), np.concatenate(lo_parts), np.concatenate(hi_parts)

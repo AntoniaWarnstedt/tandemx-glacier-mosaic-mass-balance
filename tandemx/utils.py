@@ -98,11 +98,6 @@ def is_valid_period_comparison(yA, yB):
     return True
 
 
-def merged_epoch_labels():
-    """Labels of the merged epochs in cfg.MERGED_EPOCHS, e.g. "2016-2017"."""
-    return ["-".join(years) for years in cfg.MERGED_EPOCHS]
-
-
 def should_skip_individual_year(year_label, epoch_labels):
     """True if year_label is part of a merged epoch that is among epoch_labels."""
     epoch_labels = set(epoch_labels)
@@ -126,15 +121,6 @@ def summary_epochs(labels):
     if len(eps) < 3:
         return None
     return [eps[0], eps[len(eps) // 2], eps[-1]]
-
-
-def longest_change(all_changes):
-    """Change dict spanning the longest time (earliest start on ties)."""
-    def span(c):
-        a0 = int(parse_period(canonical_period_key(c["yA"]))[0])
-        b1 = int(parse_period(canonical_period_key(c["yB"]))[1])
-        return (b1 - a0, -a0)
-    return max(all_changes, key=span) if all_changes else None
 
 
 def mask_year_for_label(label):
@@ -172,32 +158,6 @@ def get_decimal_date(filename):
         print(f"   ⚠️  No full date found in {base} -- using mid-year {year_match.group()}.5")
         return float(year_match.group()) + 0.5
     return 2020.0
-
-
-def get_master_grid_info(mask_path, resolution=30):
-    """Get master grid information from mask shapefile extent."""
-    with fiona.open(mask_path, 'r') as shp:
-        bounds = shp.bounds
-        fiona_crs = shp.crs
-
-    # Normalise to rasterio.CRS so transform_bounds() and reproject()
-    # always receive a consistent type regardless of fiona version.
-    crs = rasterio.CRS.from_user_input(fiona_crs)
-
-    width = int(np.ceil((bounds[2] - bounds[0]) / resolution))
-    height = int(np.ceil((bounds[3] - bounds[1]) / resolution))
-    transform = from_bounds(bounds[0], bounds[1], bounds[2], bounds[3],
-                            width, height)
-
-    return {
-        'bounds': bounds,
-        'crs': crs,
-        'width': width,
-        'height': height,
-        'shape': (height, width),
-        'transform': transform,
-        'resolution': resolution,
-    }
 
 
 def get_master_grid_info_union(mask_paths, resolution=30):
@@ -313,7 +273,7 @@ def load_or_create_union_mask(mask_paths, grid_info, cache_path):
     n_exclude = np.sum(bad_mask)
     total = keep_mask.size
 
-    print("   ✓ Created union mask:")
+    print(f"   ✓ Created union mask:")
     print(f"      - KEEP: {n_keep:,} ({n_keep/total*100:.2f}%) valid in >=1 year")
     print(f"      - EXCLUDE: {n_exclude:,} ({n_exclude/total*100:.2f}%) valid in no year")
 
@@ -348,85 +308,6 @@ def apply_mask_and_validate(data, bad_mask, step_name=""):
         print(f"   [{step_name}] Masked {masked_count:,} pixels (kept: {after_valid:,})")
 
     return data
-
-
-def apply_year_specific_mask(dem_data, year_label, grid_info):
-    """
-    Apply year-specific mask for bedrock plots.
-    Only retains pixels where valid field == 1 in the year-specific mask.
-    If mask not found, returns data unchanged.
-    """
-    structure = generate_binary_structure(2, 2)  # 8-connected
-
-    mask_year = mask_year_for_label(year_label)
-    mask_path = cfg.YEAR_MASKS.get(mask_year)
-
-    if mask_path is None or not os.path.exists(mask_path):
-        print(f"      ⚠️  Year-specific mask not found for {year_label} (needs {mask_year})")
-        return dem_data
-
-    try:
-        year_keep_mask = np.zeros(grid_info['shape'], dtype=np.uint8)
-
-        with fiona.open(mask_path, 'r') as shp:
-            schema_props = shp.schema['properties']
-
-            valid_field = None
-            for candidate in ['DN', 'Id', 'ID', 'id']:
-                if candidate in schema_props:
-                    valid_field = candidate
-                    break
-
-            if valid_field is not None:
-                keep_geoms = [f['geometry'] for f in shp if f['properties'].get(valid_field) == 1]
-
-                if keep_geoms:
-                    year_keep_mask = rasterize(
-                        keep_geoms,
-                        out_shape=grid_info['shape'],
-                        transform=grid_info['transform'],
-                        fill=0,
-                        default_value=1,
-                        dtype=np.uint8
-                    )
-                    print(f"      Year-specific mask ({mask_year}): found {len(keep_geoms)} polygons with {valid_field}=1")
-                else:
-                    print(f"      ⚠️  No {valid_field}=1 features in {mask_year} mask!")
-
-            else:
-                print(f"      ⚠️  No valid field found in {mask_year} mask (expected one of DN, Id, ID, id)")
-                geoms = [f['geometry'] for f in shp]
-                if geoms:
-                    year_keep_mask = rasterize(
-                        geoms,
-                        out_shape=grid_info['shape'],
-                        transform=grid_info['transform'],
-                        fill=0,
-                        default_value=1,
-                        dtype=np.uint8
-                    )
-
-        year_bad_mask = (year_keep_mask == 0)
-
-        if np.any(year_bad_mask):
-            year_bad_mask = binary_dilation(year_bad_mask, structure=structure, iterations=5)
-
-        dem_masked = np.copy(dem_data)
-        dem_masked[year_bad_mask] = np.nan
-
-        n_kept = np.sum(np.isfinite(dem_masked))
-        n_total = np.sum(np.isfinite(dem_data))
-        n_masked = n_total - n_kept
-
-        print(f"      Year-specific mask ({mask_year}): kept {n_kept:,}/{n_total:,} (masked {n_masked:,})")
-
-        return dem_masked
-
-    except Exception as e:
-        print(f"      ⚠️  Error applying year-specific mask: {e}")
-        import traceback
-        traceback.print_exc()
-        return dem_data
 
 
 def rasterize_geometry_to_grid_mask(geom, grid_info, invert=True):
@@ -613,21 +494,35 @@ def nan_median_filter(arr, size=3, chunk_rows=512):
     return out
 
 
-def remove_seam_ring(arr, ring_px=1):
+def reject_abs_rate(arr, max_abs=None):
+    """Set |arr| > max_abs (default cfg.DHDT_MAX_ABS_RATE) to NaN (reject, not clip)."""
+    max_abs = cfg.DHDT_MAX_ABS_RATE if max_abs is None else max_abs
+    a = np.array(arr, dtype=np.float64, copy=True)
+    with np.errstate(invalid='ignore'):
+        a[np.abs(a) > max_abs] = np.nan
+    return a
+
+
+def remove_seam_ring(arr, ring_px=1, void_mask=None):
     """
     Set to NaN every finite pixel within `ring_px` pixels (8-connected) of a
-    NaN pixel, i.e. drop the outermost ring of each data patch. These seam
-    pixels border data voids / scene edges, where localized phase-unwrapping
-    errors are most likely. ring_px=0 disables.
+    void, i.e. drop the outermost ring of each data patch. These seam pixels
+    border data voids / scene edges, where localized phase-unwrapping errors
+    are most likely. ring_px=0 disables.
+
+    void_mask: optional boolean array of the voids to grow the ring from
+    (default: the NaNs of `arr`), so that pixels rejected for an implausible
+    rate do not also remove their neighbours.
     """
     from scipy.ndimage import binary_dilation
     a = np.array(arr, dtype=np.float64, copy=True)
     if ring_px <= 0:
         return a
     invalid = ~np.isfinite(a)
-    if not np.any(invalid):
+    voids = invalid if void_mask is None else np.asarray(void_mask, dtype=bool)
+    if not np.any(voids):
         return a
-    near_void = binary_dilation(invalid, structure=np.ones((3, 3), dtype=bool),
+    near_void = binary_dilation(voids, structure=np.ones((3, 3), dtype=bool),
                                 iterations=ring_px)
     a[near_void & ~invalid] = np.nan
     return a

@@ -12,6 +12,7 @@ from .utils import (
     format_period_label,
     nan_median_filter,
     parse_period,
+    reject_abs_rate,
     remove_seam_ring,
     save_raster,
 )
@@ -69,8 +70,13 @@ def compute_elevation_change(resA, resB, yA, yB, grid_info, bad_mask, slope_mask
     with np.errstate(invalid='ignore', divide='ignore'):
         dhdt_raw_observed = np.where(np.abs(dt) > 1e-6, dh / dt, np.nan)
 
-    # reject unrealistic rates
-    dhdt_raw_observed = np.clip(dhdt_raw_observed, -30, 30) #30
+    # reject unrealistic rates (|dh/dt| > cfg.DHDT_MAX_ABS_RATE -> NaN, not clipped)
+    data_voids = ~np.isfinite(dhdt_raw_observed)   # real voids, before rejection
+    n_rej = int(np.sum(np.isfinite(dhdt_raw_observed)
+                       & (np.abs(np.nan_to_num(dhdt_raw_observed)) > cfg.DHDT_MAX_ABS_RATE)))
+    dhdt_raw_observed = reject_abs_rate(dhdt_raw_observed)
+    print(f"      Rejected {n_rej:,} px with |dh/dt| > {cfg.DHDT_MAX_ABS_RATE:g} m a⁻¹ "
+          f"({format_period_label(yA, yB)})")
 
     # 3x3 NaN-aware median filter (voids ignored, not zero-filled), then
     # remove the one-pixel seam ring bordering data voids / scene edges
@@ -78,11 +84,12 @@ def compute_elevation_change(resA, resB, yA, yB, grid_info, bad_mask, slope_mask
     valid_mask = np.isfinite(dhdt_raw_observed)
     if np.any(valid_mask):
         dhdt_filtered_3x3 = nan_median_filter(dhdt_raw_observed, size=3)
-        dhdt_filtered_3x3 = remove_seam_ring(dhdt_filtered_3x3, cfg.SEAM_RING_REMOVE_PX)
+        dhdt_filtered_3x3 = remove_seam_ring(dhdt_filtered_3x3, cfg.SEAM_RING_REMOVE_PX,
+                                             void_mask=data_voids)
     else:
         dhdt_filtered_3x3 = np.full_like(dhdt_raw_observed, np.nan)
 
-    dhdt_filtered_3x3 = np.clip(dhdt_filtered_3x3, -30, 30)
+    dhdt_filtered_3x3 = reject_abs_rate(dhdt_filtered_3x3)
 
     # Apply study mask
     dh = apply_mask_and_validate(dh, bad_mask, f"dh {format_period_label(yA, yB)}")
@@ -152,7 +159,7 @@ def compute_elevation_change(resA, resB, yA, yB, grid_info, bad_mask, slope_mask
     }
 
 
-def calc_obs_period(dt_raster, glacier_mask):
+def calc_obs_period_r_style(dt_raster, glacier_mask):
     """
     Match R Stage 3:
     regional, glacier, stable observation-period summaries.

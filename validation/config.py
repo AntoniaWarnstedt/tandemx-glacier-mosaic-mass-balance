@@ -20,20 +20,24 @@ STATE_FILE = os.path.join(OUTPUT_DIR, "validation_state.pkl")  # hand-over proce
 # TanDEM-X products of run_tandemx_processing.py (dem_<epoch>.tif, dhdt_*.tif).
 TDX_DIR = os.path.join("path/to/output", "tandemx")
 
-# Geoid grids. Everything is referenced to EGM2008 (as the TanDEM-X mosaics);
-# EGM96 is only needed to undo the EGM96 heights of the ICESat-2 input files.
-# EGM2008 grid: https://cdn.proj.org/us_nga_egm08_25.tif
-GEOID_GRID_EGM96 = os.path.join(DATA_DIR, "geoid/egm96_15.gtx")
+# EGM2008 geoid grid (https://cdn.proj.org/us_nga_egm08_25.tif). The ellipsoidal
+# CryoSat-2 and ICESat-2 heights are converted to EGM2008, the vertical
+# reference of the TanDEM-X mosaics.
 GEOID_GRID_EGM2008 = os.path.join(DATA_DIR, "geoid/us_nga_egm08_25.tif")
 
 # CryoSat-2 point files cs2_points_<YYYY>.gpkg/.shp with columns 'elevation'
 # (WGS84 ellipsoidal), 'datetime' (or 'dec_year') and 'uncertainty'/'elev_unc'.
 CS2_SHP_DIR = os.path.join(DATA_DIR, "cryosat2")
 
-# ICESat-2 ATL06 points, one file per year ({year} is replaced), with column
-# 'h_egm96' and a time column ('datetime'/'date'/'time' or 't_year').
+# ICESat-2 ATL06 points: files found with IS2_FILE_GLOB below IS2_BASE_PATH
+# ({year} = 4-digit year, '**' = any sub-folder; a merged epoch "2024-2025"
+# uses the files of both years).
 IS2_BASE_PATH = os.path.join(DATA_DIR, "icesat2_atl06")
-IS2_FILE_TEMPLATE = os.path.join(IS2_BASE_PATH, "atl06_{year}.shp")
+IS2_FILE_GLOB = "atl06_{year}*.shp"
+IS2_HEIGHT_COL = "h_elv"             # ellipsoidal (WGS84) ATL06 height h_li, converted to EGM2008
+IS2_TIME_COL = "t_year"              # decimal-year time column; else 'datetime'/'date'/'time'/'delta_time'
+IS2_APPLY_TIME_FILTER = False        # apply the +-IS2_MAX_TEMPORAL_OFFSET window (False: files are
+                                     # already limited to the TanDEM-X dates; the window is only reported)
 IS2_ROI_PATH = os.path.join(DATA_DIR, "outlines/study_area.shp")    # ICESat-2 points are clipped to it
 IS2_YEARS = []                       # TanDEM-X epochs (dem_<epoch>.tif) compared with ICESat-2
 
@@ -78,15 +82,31 @@ DHDT_MIN_PAIRS_PER_CELL = 3          # min. point pairs per cell
 ENABLE_HYPSOMETRIC_DHDT = True       # elevation-banded dh/dt statistics
 
 # =============================================================================
+# 4b. Cross-checks of the TanDEM-X - altimeter offset (tables in OUTPUT_DIR/cross_checks)
+# =============================================================================
+# Same-cell comparison: ICESat-2 vs CryoSat-2 in identical grid cells, with
+# TanDEM-X as transfer surface (IS2 - CS2 = (TDX - CS2) - (TDX - IS2)).
+SAME_CELL_PERIODS = None             # epochs with both sensors; None = all such epochs
+# Rock comparison: TanDEM-X minus altimeter on ice-free rock (no penetration,
+# no surface change), i.e. a check of the vertical reference.
+ROCK_OUTCROP_PATH = os.path.join(DATA_DIR, "rock_outcrop/rock_outcrop.shp")  # same mask as the TanDEM-X stable terrain
+ROCK_DOMAIN_BUFFER_M = 10000.0       # rock inside IS2_ROI_PATH buffered by this distance (m)
+ROCK_EDGE_BUFFER_M = 60.0            # rock polygons shrunk by this distance (ice/rock edge pixels) (m)
+ROCK_LOW_SLOPE_DEG = 15.0            # statistics also for rock with slope <= this (deg)
+ROCK_ABS_DIFF_MAX_M = 50.0           # point-level outlier threshold on rock (clouds, blunders) (m)
+
+# =============================================================================
 # 5. Figures
 # =============================================================================
 PLOT_DPI = 300
+ROBUST_STATS = True                  # figures show median and NMAD (hypsometric panels, heatmap,
+                                     # bias lines, statistics boxes) instead of / next to mean and SD
 HEATMAP_SLOPE_MAX_DEG = 45.0         # slope range of the elevation x slope heatmap (deg)
 HEATMAP_SLOPE_BIN_WIDTH_DEG = 5.0
 DHDT_SCATTER_LIM = (-5, 5)           # axis range of the dh/dt scatter panels (m a-1)
 SENSOR_COLORS = {"CryoSat-2": "#9B59B6", "CryoSat-2 dhdt": "#C71585", "ICESat-2": "#2E6DA4"}
 NEUTRAL_LINE_COLOR = "#333333"       # zero and 1:1 lines
-BLUE, RED, GREY, LGREY = "#2C6FAC", "#CC2222", "#888888", "#cccccc"
+RED, GREY = "#CC2222", "#888888"      # fallback sensor colour, N-per-bin bars
 SPINE_COLOR = "#333333"
 GRID_KW = dict(color="#cccccc", linewidth=0.6, linestyle="-")
 TICK_KW = dict(labelsize=15)
@@ -97,7 +117,6 @@ HYPS_N_YLIM_PANEL = {}               # {(sensor, epoch): (min, max)} per-panel o
 HYPS_N_YLIM = {}                     # {unit: (min, max)} per unit ("m" / "m a⁻¹"); missing = auto
 SCATTER_ELEV_LIM = None              # shared axis range of the elevation scatter panels (m); None = per panel
 COMBINED_IS2_EPOCHS = None           # ICESat-2 epochs shown in the combined figures; None = last of IS2_YEARS
-SLOPE_OVERLAY_COLOR = "#D35400"      # slope-bias series in the hypsometric+slope figure
 RC_PARAMS = {                        # font sizes for the large multi-panel figures
     "font.size": 16, "axes.titlesize": 18, "axes.labelsize": 17, "xtick.labelsize": 15,
     "ytick.labelsize": 15, "legend.fontsize": 14, "figure.titlesize": 24, "axes.linewidth": 1.0,
@@ -108,7 +127,7 @@ RC_PARAMS = {                        # font sizes for the large multi-panel figu
 # Example: settings of Warnstedt et al. (Wordie Ice Shelf tributaries)
 # =============================================================================
 # --- Example (uncomment to use) ---
-# IS2_FILE_TEMPLATE = os.path.join(IS2_BASE_PATH, "winter_{year}_egm96", "winter_{year}_egm96.shp")
+# IS2_FILE_GLOB = "winter_{year}_egm96/winter_{year}_egm96.shp"
 # IS2_ROI_PATH = os.path.join(DATA_DIR, "outlines/outline_2025.shp")
 # IS2_YEARS = [2022, 2023, 2024, 2025, "2024-2025"]
 # TDX_ACQUISITIONS = {
@@ -127,6 +146,7 @@ RC_PARAMS = {                        # font sizes for the large multi-panel figu
 # HYPS_N_YLIM = {"m": (0, 2500), "m a⁻¹": (0, 1500)}
 # SCATTER_ELEV_LIM = (0.0, 2000.0)
 # COMBINED_IS2_EPOCHS = ["2024-2025"]
+# SAME_CELL_PERIODS = ["2024-2025"]
 
 
 def ensure_output_dirs():

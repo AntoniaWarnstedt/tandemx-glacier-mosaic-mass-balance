@@ -17,7 +17,6 @@ from scipy import stats
 from . import config as cfg
 from .utils import (
     apply_mask_and_validate,
-    apply_year_specific_mask,
     get_decimal_date,
     prefilter_dem,
     resample_to_grid,
@@ -187,7 +186,7 @@ def deramp_strip_to_mosaic(strip, current_mosaic, x_coords, y_coords):
                 break
         if n_iter == 0:
             return _median_shift("ramp fit failed -> median shift")
-        return strip, (f"quadratic de-ramp, {n_iter} iteration(s), last increment "
+        return strip, (f"{'planar' if cfg.DERAMP_ORDER == 1 else 'quadratic'} de-ramp, {n_iter} iteration(s), last increment "
                        f"RMS={last_rms:.3f} m, residual std="
                        f"{last_params['residual_std']:.3f} m ({n_overlap} overlap px)"), steps
     if n_overlap > cfg.MEDIAN_SHIFT_MIN_PTS:
@@ -372,7 +371,29 @@ def mosaic_year_v2(year_path, year_label, grid_info, bad_mask, x_coords, y_coord
     strips_fp    = [strips_fp[i]    for i in sort_order]
     strips_info  = [strips_info[i]  for i in sort_order]
 
-    print("\n   Building mosaic (largest strip first, iterative de-ramping, feathered overlaps)...")
+    # cfg.MOSAIC_ORDER "overlap": reference = strip with most valid pixels,
+    # then always the strip with the largest overlap with the mosaic built so
+    # far ("size": strictly by number of valid pixels).
+    if cfg.MOSAIC_ORDER == "overlap" and len(strips_data) > 2:
+        cov = np.isfinite(strips_data[0])
+        remaining = list(range(1, len(strips_data)))
+        greedy = [0]
+        while remaining:
+            ov = [int(np.count_nonzero(cov & np.isfinite(strips_data[j]))) for j in remaining]
+            j = remaining[int(np.argmax(ov))]
+            greedy.append(j)
+            remaining.remove(j)
+            cov |= np.isfinite(strips_data[j])
+        strips_data  = [strips_data[i]  for i in greedy]
+        strips_dates = [strips_dates[i] for i in greedy]
+        strips_files = [strips_files[i] for i in greedy]
+        strips_stb   = [strips_stb[i]   for i in greedy]
+        strips_fp    = [strips_fp[i]    for i in greedy]
+        strips_info  = [strips_info[i]  for i in greedy]
+        print("   Mosaic order (reference = most valid pixels, then largest overlap): "
+              + ", ".join(os.path.basename(f)[8:18] for f in strips_files))
+
+    print(f"\n   Building mosaic (largest strip first, iterative de-ramping, feathered overlaps)...")
 
     ref      = strips_data[0].astype(np.float64)
     w_ref    = feather_weights(ref)
@@ -436,6 +457,8 @@ def mosaic_year_v2(year_path, year_label, grid_info, bad_mask, x_coords, y_coord
     # Apply study-area mask once on the finished composite
     dem_mos = apply_mask_and_validate(dem_mos, bad_mask, "Final mosaic")
 
+    # date only where the published DEM has data
+    date_mos = np.where(np.isfinite(dem_mos), date_mos, np.nan)
     dem_mos  = dem_mos.astype(np.float32)
     date_mos = date_mos.astype(np.float32)
 
@@ -445,19 +468,13 @@ def mosaic_year_v2(year_path, year_label, grid_info, bad_mask, x_coords, y_coord
     save_raster(dem_mos,  dem_out,  grid_info,
                 units="m", description=f"TanDEM-X DEM mosaic, {year_label} (elevation a.s.l.)")
     save_raster(date_mos, date_out, grid_info,
-                units="decimal year", description=f"Acquisition-date mosaic, {year_label}")
+                units="decimal year",
+                description=f"Effective acquisition date (feather-weighted mean of contributing strip dates), {year_label}")
 
     n_final = int(np.sum(np.isfinite(dem_mos)))
     print(f"   ✓ Saved: {os.path.basename(dem_out)} ({n_final} valid pixels)")
 
-    dem_bedrock = apply_year_specific_mask(dem_mos, year_label, grid_info)
-    dem_bedrock_out = os.path.join(cfg.BEDROCK_DEM_DIR, f"dem_{year_label}_bedrock.tif")
-    save_raster(dem_bedrock, dem_bedrock_out, grid_info,
-                units="m", description=f"TanDEM-X DEM mosaic, {year_label}, bedrock/stable-terrain mask applied")
-    print(f"   ✓ Saved bedrock DEM: {os.path.basename(dem_bedrock_out)}")
-
-    result = {'dem_file': dem_out, 'date_file': date_out,
-              'bedrock_dem_file': dem_bedrock_out}
+    result = {'dem_file': dem_out, 'date_file': date_out}
     if use_stb and np.any(stb_w > 0):
         with np.errstate(invalid='ignore', divide='ignore'):
             stb_mos  = np.where(stb_w > 0, stb_wsum / stb_w, np.nan).astype(np.float32)
@@ -562,7 +579,7 @@ def merge_multiyear_dems(year_results, years_to_merge, grid_info, bad_mask, x_co
     sids_to_merge  = [sids_to_merge[i]  for i in sort_order]
     years_sorted   = [years_to_merge[i] for i in sort_order]
 
-    print("\n   Building merged mosaic (largest coverage first, iterative de-ramping, feathered overlaps)...")
+    print(f"\n   Building merged mosaic (largest coverage first, iterative de-ramping, feathered overlaps)...")
 
     ref       = dems_to_merge[0].astype(np.float64)
     ref_date  = dates_to_merge[0]
@@ -635,6 +652,7 @@ def merge_multiyear_dems(year_results, years_to_merge, grid_info, bad_mask, x_co
 
     dem_merged = apply_mask_and_validate(dem_merged, bad_mask, "Merged mosaic")
 
+    date_merged = np.where(np.isfinite(dem_merged), date_merged, np.nan)
     dem_merged  = dem_merged.astype(np.float32)
     date_merged = date_merged.astype(np.float32)
 
@@ -644,19 +662,13 @@ def merge_multiyear_dems(year_results, years_to_merge, grid_info, bad_mask, x_co
     save_raster(dem_merged,  dem_out,  grid_info,
                 units="m", description=f"TanDEM-X DEM mosaic, merged {merged_label} (elevation a.s.l.)")
     save_raster(date_merged, date_out, grid_info,
-                units="decimal year", description=f"Acquisition-date mosaic, merged {merged_label}")
+                units="decimal year",
+                description=f"Effective acquisition date (feather-weighted mean of contributing strip dates), merged {merged_label}")
 
     n_final = int(np.sum(np.isfinite(dem_merged)))
     print(f"   ✓ Saved: {os.path.basename(dem_out)} ({n_final} valid pixels)")
 
-    dem_bedrock = apply_year_specific_mask(dem_merged, merged_label, grid_info)
-    dem_bedrock_out = os.path.join(cfg.BEDROCK_DEM_DIR, f"dem_{merged_label}_bedrock.tif")
-    save_raster(dem_bedrock, dem_bedrock_out, grid_info,
-                units="m", description=f"TanDEM-X DEM mosaic, merged {merged_label}, bedrock/stable-terrain mask applied")
-    print(f"   ✓ Saved bedrock DEM: {os.path.basename(dem_bedrock_out)}")
-
-    result = {'dem_file': dem_out, 'date_file': date_out,
-              'bedrock_dem_file': dem_bedrock_out}
+    result = {'dem_file': dem_out, 'date_file': date_out}
     if np.any(s_w > 0):
         with np.errstate(invalid='ignore', divide='ignore'):
             stb_m  = np.where(s_w  > 0, s_wsum / s_w,  np.nan).astype(np.float32)

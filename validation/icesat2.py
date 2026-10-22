@@ -53,127 +53,156 @@ def calculate_statistics(gdf, year_str, is2_col):
     return sd
 
 
-def get_is2_files_for_year(year_str):
-    files = []
+def get_is2_files_for_year(year_str, base_path=None, pattern=None):
+    """All ICESat-2 point files for one TanDEM-X period ('2024-2025' ->
+    the 2024 AND the 2025 files), found with cfg.IS2_FILE_GLOB below
+    cfg.IS2_BASE_PATH. Every match is printed so the run log shows exactly
+    which files went in."""
+    base_path = Path(cfg.IS2_BASE_PATH if base_path is None else base_path)
+    pattern = cfg.IS2_FILE_GLOB if pattern is None else pattern
     sub_years = (year_str.split('-')
                  if isinstance(year_str, str) and '-' in year_str
                  else [str(year_str)])
+    files = []
     for y in sub_years:
-        files.append(Path(cfg.IS2_FILE_TEMPLATE.format(year=y)))
-    return files
+        hits = sorted(base_path.glob(pattern.format(year=y)))
+        if not hits:
+            print(f"  WARNING: no ICESat-2 file for {y} in {base_path} "
+                  f"(pattern '{pattern.format(year=y)}')")
+        for h in hits:
+            print(f"  ICESat-2 file for {y}: {h}")
+        files.extend(hits)
+    # same file must not enter twice (e.g. a name containing both years)
+    return list(dict.fromkeys(files))
+
+
+# ATL06 'delta_time' = seconds since the ATLAS SDP epoch 2018-01-01 00:00:00 (GPS time).
+ATLAS_SDP_EPOCH = pd.Timestamp('2018-01-01 00:00:00')
+
+
+def _is2_timestamps(gdf):
+    """Acquisition timestamps of ICESat-2 points. Uses cfg.IS2_TIME_COL (decimal
+    year, 't_year') when present; otherwise a 'datetime'/'date'/'time'
+    column, then 'dec_year', then ATL06 'delta_time'. Returns (Series of Timestamps, column name) or (None, None)."""
+    cols = {c.lower(): c for c in gdf.columns}
+    order = [cfg.IS2_TIME_COL.lower()] + [c for c in ('datetime', 'date', 'time', 't_year', 'dec_year')
+                                      if c != cfg.IS2_TIME_COL.lower()]
+    for name in order:
+        if name not in cols:
+            continue
+        col = cols[name]
+        if name in ('t_year', 'dec_year') or pd.api.types.is_numeric_dtype(gdf[col]):
+            vals = pd.to_numeric(gdf[col], errors='coerce').values
+            if np.nanmedian(vals) < 1900 or np.nanmedian(vals) > 2100:
+                print(f"    time column '{col}' is numeric but not a decimal year -- skipped")
+                continue
+            return (pd.Series(decimal_year_to_timestamp(vals).values, index=gdf.index), col)
+        return pd.to_datetime(gdf[col], errors='coerce'), col
+    if 'delta_time' in cols:
+        dt = pd.to_numeric(gdf[cols['delta_time']], errors='coerce')
+        return ATLAS_SDP_EPOCH + pd.to_timedelta(dt, unit='s'), cols['delta_time']
+    return None, None
+
+
+def load_is2_points(year, target_crs, clip_gdf, tdx_dates=None,
+                    window_days=None,
+                    base_path=None, height_col=None):
+    """
+    Load the raw (ellipsoidal) ICESat-2 points of one TanDEM-X period,
+    reproject them to `target_crs`, clip to `clip_gdf`, keep points within
+    +-window_days of a TanDEM-X acquisition and convert the ellipsoidal
+    height straight to EGM2008 (column 'h_egm2008'; the same single-step
+    route as CryoSat-2's convert_cs2_to_geoid()).
+
+    Shared by process_year() (glacier comparison) and run_rock_comparison()
+    so both use identical points. Returns an empty GeoDataFrame if nothing
+    is left. Without a usable time column all points are kept (with a warning).
+    """
+    height_col = cfg.IS2_HEIGHT_COL if height_col is None else height_col
+    window_days = cfg.IS2_MAX_TEMPORAL_OFFSET if window_days is None else window_days
+    paths = [p for p in get_is2_files_for_year(str(year), base_path=base_path) if p.exists()]
+    if not paths:
+        return gpd.GeoDataFrame()
+    gdfs = [gpd.read_file(p).to_crs(target_crs) for p in paths]
+    gdf = pd.concat(gdfs, ignore_index=True) if len(gdfs) > 1 else gdfs[0]
+    gdf = gpd.GeoDataFrame(gdf, geometry='geometry', crs=target_crs)
+    if height_col not in gdf.columns:
+        raise ValueError(f"ICESat-2 files for {year} have no '{height_col}' column "
+                         f"(columns: {list(gdf.columns)}). Set cfg.IS2_HEIGHT_COL.")
+    if clip_gdf is not None:
+        clip_gdf = clip_gdf.to_crs(target_crs) if clip_gdf.crs != target_crs else clip_gdf
+        gdf = gpd.clip(gdf, clip_gdf).copy()
+    print(f"  ICESat-2 {year}: {len(gdf):,} points inside the clip area")
+    if gdf.empty:
+        return gdf
+
+    tdx_dates = get_tdx_dates(str(year)) if tdx_dates is None else tdx_dates
+    ts, tcol = _is2_timestamps(gdf)
+    if ts is None:
+        # warn and keep all points
+        print(f"  WARNING: no usable time column in the ICESat-2 files for {year} "
+              f"(columns: {list(gdf.columns)}) -- proceeding WITHOUT the "
+              f"+-{window_days}-day filter.")
+        tdx_dates = []
+    else:
+        gdf['datetime_parsed'] = ts.values
+        print(f"  ICESat-2 dates from '{tcol}': {pd.Series(ts).min()} to {pd.Series(ts).max()}")
+    if tdx_dates:
+        offs = pd.concat([(gdf['datetime_parsed'] - t).abs() for t in tdx_dates],
+                         axis=1).min(axis=1)
+        gdf['temporal_offset_days'] = offs.dt.days
+        inside = gdf['temporal_offset_days'] <= window_days
+        months = pd.Series(pd.DatetimeIndex(gdf['datetime_parsed']).month).value_counts().sort_index()
+        print(f"  Points per month (from '{tcol}'): "
+              + ', '.join(f"{int(m)}: {n:,}" for m, n in months.items()))
+        print(f"  {int(inside.sum()):,} of {len(gdf):,} points lie within +-{window_days} days "
+              f"of a TanDEM-X date (by '{tcol}')")
+        if cfg.IS2_APPLY_TIME_FILTER:
+            gdf = gdf[inside].copy()
+            print(f"  Temporal filter applied: kept {len(gdf):,} points")
+        else:
+            print("  Temporal filter NOT applied (cfg.IS2_APPLY_TIME_FILTER = False; files pre-filtered)")
+    if gdf.empty:
+        return gdf
+
+    # Ellipsoid (WGS84) -> EGM2008, single step (from_grid=None).
+    gdf = convert_gdf_to_egm2008(gdf, height_col, from_grid=None,
+                                 out_col='h_egm2008', to_grid=cfg.GEOID_GRID_EGM2008)
+    off = gdf['h_egm2008_offset'].values
+    print(f"  {height_col} (ellipsoidal) -> EGM2008: applied -N = "
+          f"{np.nanmin(off):+.2f} to {np.nanmax(off):+.2f} m "
+          f"(should be roughly minus the local geoid undulation; ~0 means the grid did not load)")
+    if not np.isfinite(off).any() or np.nanmax(np.abs(off)) < 0.5:
+        raise RuntimeError("EGM2008 conversion changed the heights by < 0.5 m: "
+                           f"check cfg.GEOID_GRID_EGM2008 ({cfg.GEOID_GRID_EGM2008}).")
+    return gdf
 
 
 def process_year(year, roi_gdf, results, use_aggregation=True):
-    """Full comparison pipeline for one TanDEM-X mosaic year (ICESat-2 side)."""
+    """
+    Comparison for one TanDEM-X epoch: load_is2_points() (ellipsoidal ATL06
+    heights -> EGM2008, clipped, time window), TanDEM-X elevation and slope
+    at every point, co-located aggregation to the shared grid, then
+    dh = TanDEM-X - ICESat-2 per cell.
+    """
     print(f"\n{'='*60}")
     print(f"Processing year: {year}")
     print(f"{'='*60}")
 
     dem_path       = Path(cfg.TDX_DIR) / f"dem_{year}.tif"
-    is2_paths      = get_is2_files_for_year(str(year))
     out_folder     = Path(cfg.IS2_OUTPUT_DIR)
 
     if not dem_path.exists():
         print(f"  Warning: DEM not found at {dem_path}. Skipping.")
         return
 
-    existing_is2 = [p for p in is2_paths if p.exists()]
-    if not existing_is2:
-        print(f"  Warning: No ICESat-2 files found for {year}. Skipping.")
-        return
-
     with rasterio.open(dem_path) as src:
         dem_crs = src.crs
 
-    print("  Loading ICESat-2 data...")
-    gdfs = [gpd.read_file(p) for p in existing_is2]
-    is2_gdf = pd.concat(gdfs, ignore_index=True) if len(gdfs) > 1 else gdfs[0]
-
-    # ── Reproject to the TanDEM-X raster's CRS (BEFORE aggregation) ────────
-    if is2_gdf.crs != dem_crs:
-        print(f"  Reprojecting points to {dem_crs}...")
-        is2_gdf = is2_gdf.to_crs(dem_crs)
-    if roi_gdf.crs != dem_crs:
-        roi_gdf = roi_gdf.to_crs(dem_crs)
-
-    print("  Clipping points to ROI...")
-    is2_clipped = gpd.clip(is2_gdf, roi_gdf).copy()
+    is2_clipped = load_is2_points(year, dem_crs, roi_gdf)
     if is2_clipped.empty:
-        print(f"  No points found inside ROI for year {year}.")
+        print(f"  No ICESat-2 points left for {year}.")
         return
-
-    # ── Temporal filtering ──────────────────────────────────────────────────
-    valid_tdx_dates = get_tdx_dates(str(year))
-    date_col = next(
-        (c for c in is2_clipped.columns
-         if c.lower() in ['datetime', 'date', 'time']), None
-    )
-    # Fallback: some IS2 shapefiles carry only a decimal-year column (e.g.
-    # 't_year', mirroring the CS2 pipeline's own 'dec_year' fallback in
-    # load_cs2_shapefiles) instead of a day-level timestamp.
-    dec_year_col = None if date_col else next(
-        (c for c in ['t_year', 'dec_year'] if c in is2_clipped.columns), None
-    )
-
-    if valid_tdx_dates and (date_col or dec_year_col):
-        print(f"  Checking points against {len(valid_tdx_dates)} "
-              f"TDX acquisition dates...")
-        if date_col:
-            is2_clipped['datetime_parsed'] = pd.to_datetime(
-                is2_clipped[date_col], errors='coerce')
-        else:
-            is2_clipped['datetime_parsed'] = decimal_year_to_timestamp(
-                is2_clipped[dec_year_col].values).values
-            print(f"    NOTE: no day-level timestamp column; reconstructed "
-                  f"from decimal-year column '{dec_year_col}'.")
-        before = len(is2_clipped)
-        diffs_list = [(is2_clipped['datetime_parsed'] - t).abs()
-                      for t in valid_tdx_dates]
-        min_diffs = pd.concat(diffs_list, axis=1).min(axis=1)
-        is2_clipped['temporal_offset_days'] = min_diffs.dt.days
-        is2_clipped = is2_clipped[
-            is2_clipped['temporal_offset_days'] <= cfg.IS2_MAX_TEMPORAL_OFFSET
-        ].copy()
-        print(f"  Temporal filtering (±{cfg.IS2_MAX_TEMPORAL_OFFSET} days): "
-              f"kept {len(is2_clipped):,} of {before:,} points")
-    else:
-        if not date_col and not dec_year_col:
-            print("  WARNING: No 'datetime'/'date'/'time' or decimal-year "
-                  "('t_year'/'dec_year') column found in IS2 shapefile. "
-                  "Columns actually present:")
-            print(f"    {list(is2_clipped.columns)}")
-            print("  If one of these is actually the acquisition timestamp "
-                  "(e.g. 'delta_time', 'utc_time', 'gps_time'), the ±30-day "
-                  "TDX window filter above needs that exact name added to "
-                  "the date_col candidate list -- otherwise it silently "
-                  "falls through to using the WHOLE year's data unfiltered, "
-                  "which also feeds more (and less well time-matched) "
-                  "points into the grid aggregation below than intended.")
-        else:
-            print(f"  WARNING: No known TDX acquisition dates for {year}.")
-        print("  Proceeding WITHOUT temporal filtering.")
-
-    if is2_clipped.empty:
-        print("  No points remain after temporal filtering.")
-        return
-
-    if 'h_egm96' not in is2_clipped.columns:
-        raise ValueError(
-            f"IS2 shapefile for year {year} has no 'h_egm96' column "
-            f"(columns present: {list(is2_clipped.columns)}). Refusing to "
-            f"silently fall back to an ellipsoidal height column, since "
-            f"that would make this year's TDX-IS2 bias not comparable to "
-            f"CS2's geoid-referenced bias. Fix the upstream IS2 "
-            f"pre-processing so it always provides 'h_egm96' for this year."
-        )
-
-    # ------------------------------------------------------------------
-    # The IS2 input files carry EGM96-referenced heights ('h_egm96').
-    # ------------------------------------------------------------------
-    print("  Converting EGM96 → EGM2008 geoid heights...")
-    is2_clipped = convert_gdf_to_egm2008(
-        is2_clipped, 'h_egm96', from_grid=cfg.GEOID_GRID_EGM96,
-        out_col='h_egm2008', to_grid=cfg.GEOID_GRID_EGM2008)
     height_col = 'h_egm2008'
 
     # ── Sample DEM (+ slope of THIS epoch's DEM) at every raw ICESat-2

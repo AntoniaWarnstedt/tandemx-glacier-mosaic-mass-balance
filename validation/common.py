@@ -481,6 +481,37 @@ def print_validity_breakdown(label: str, tdx_vals, diff_vals,
           f"-> {valid.sum():,} valid ({100*valid.sum()/n:.1f}%)")
 
 
+def nmad(x) -> float:
+    """Normalised median absolute deviation, 1.4826 * median(|x - median(x)|)
+    (Hoehle & Hoehle, 2009). NaNs are ignored; NaN for an empty input."""
+    x = np.asarray(x, dtype=float)
+    x = x[np.isfinite(x)]
+    if x.size == 0:
+        return np.nan
+    return float(1.4826 * np.median(np.abs(x - np.median(x))))
+
+
+def robust_summary(d, prefix: str = '') -> dict:
+    """Mean/SD and median/NMAD (plus N, RMSE, 5th/95th percentile) of a
+    difference array, as one dict."""
+    d = np.asarray(d, dtype=float)
+    d = d[np.isfinite(d)]
+    keys = ['n', 'mean', 'std', 'median', 'nmad', 'rmse', 'p5', 'p95']
+    if d.size == 0:
+        return {f'{prefix}{k}': (0 if k == 'n' else np.nan) for k in keys}
+    vals = [d.size, d.mean(), d.std(), np.median(d), nmad(d),
+            np.sqrt(np.mean(d ** 2)), np.percentile(d, 5), np.percentile(d, 95)]
+    return {f'{prefix}{k}': v for k, v in zip(keys, vals)}
+
+
+def center_spread_cols():
+    """(centre column, spread column, centre name, spread name) of the banded
+    panels, following cfg.ROBUST_STATS."""
+    if cfg.ROBUST_STATS:
+        return 'median_diff', 'nmad_diff', 'Median', 'NMAD'
+    return 'mean_diff', 'std_diff', 'Mean', 'std'
+
+
 def compute_hypsometry(gdf, elev_col='tdx_elev', diff_col='diff',
                         bin_width=cfg.HYPS_BIN_WIDTH_M,
                         min_samples=cfg.HYPS_MIN_SAMPLES) -> pd.DataFrame:
@@ -507,6 +538,7 @@ def compute_hypsometry(gdf, elev_col='tdx_elev', diff_col='diff',
             'mean_diff':   np.mean(d),
             'median_diff': np.median(d),
             'std_diff':    np.std(d),
+            'nmad_diff':   nmad(d),
             'rmse':        np.sqrt(np.mean(d**2)),
             'p5':          np.percentile(d, 5),
             'p95':         np.percentile(d, 95),
@@ -516,39 +548,6 @@ def compute_hypsometry(gdf, elev_col='tdx_elev', diff_col='diff',
     print(f"  Hypsometry: {len(df)} bands "
           f"({bin_width:.0f} m each, >={min_samples} samples/band)")
     return df
-
-
-def compute_binned_stats(gdf, bin_col, diff_col='diff',
-                          min_samples=cfg.HYPS_MIN_SAMPLES) -> pd.DataFrame:
-    """
-    Generic analogue of compute_hypsometry() for any already-classified column
-    (e.g. a slope-bin value sampled from a pre-binned raster). Groups by
-    whatever distinct values are already present in bin_col -- nothing is re-
-    binned here. Shared by both pipelines; pass diff_col explicitly ('diff' for
-    CS2, 'dh' for IS2).
-    """
-    d = gdf[[bin_col, diff_col]].replace([np.inf, -np.inf], np.nan).dropna()
-    rows = []
-    for val, grp in d.groupby(bin_col):
-        x = grp[diff_col].values
-        if len(x) < min_samples:
-            continue
-        rows.append({
-            bin_col:       val,
-            'n':           len(x),
-            'mean_diff':   np.mean(x),
-            'median_diff': np.median(x),
-            'std_diff':    np.std(x),
-            'rmse':        np.sqrt(np.mean(x**2)),
-            'p5':          np.percentile(x, 5),
-            'p95':         np.percentile(x, 95),
-        })
-    out = pd.DataFrame(rows)
-    if not out.empty:
-        out = out.sort_values(bin_col).reset_index(drop=True)
-    print(f"  Binned stats on '{bin_col}': {len(out)} class(es) "
-          f"(>={min_samples} samples/class)")
-    return out
 
 
 def save_state(results):

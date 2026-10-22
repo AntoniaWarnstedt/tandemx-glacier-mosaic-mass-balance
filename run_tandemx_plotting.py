@@ -1,28 +1,22 @@
 """
 Figures of the TanDEM-X analysis (settings: tandemx/config.py).
 Requires a previous run of run_tandemx_processing.py.
+
+1. comprehensive_summary_maps_3x3.png        DEMs, dh/dt and void-filled dh/dt
+2. comprehensive_summary_hypsometry_1x3.png  area and dh/dt per elevation bin
+3. centerline_analysis/combined_9panel_dem_and_dhdt_profiles_satellite.png
+                                             surface and dh/dt profiles along the centerlines
+4. centerline_analysis/glacier_comparison_heatmap.png
+                                             mean centerline dh/dt per glacier and period
 """
 import warnings
 
 from tandemx import config as cfg
-from tandemx.plotting.centerline_profiles import plot_centerline_elevation_changes
-from tandemx.plotting.hypsometry import (
-    plot_hypsometric_analysis,
-    plot_hypsometric_analysis_all_periods,
-    plot_mass_balance_uncertainty,
-    plot_mass_balance_uncertainty_paper,
-    plot_penetration_onset,
-    plot_sar_penetration_diagnostics,
-    plot_time_series,
-)
-from tandemx.plotting.maps import (
-    plot_comprehensive_summary,
-    plot_extended_spatial_maps,
-    plot_spatial_maps,
-    plot_uncertainty_and_filtering_maps,
-)
+from tandemx.plotting.centerline_panels import plot_centerline_profiles_figure
+from tandemx.plotting.centerlines import collect_centerline_profiles, plot_glacier_period_heatmap
+from tandemx.plotting.summary import plot_comprehensive_summary
 from tandemx.state import load_state
-from tandemx.utils import load_reference_products, setup_grid
+from tandemx.utils import setup_grid
 
 warnings.filterwarnings("ignore")
 
@@ -32,39 +26,18 @@ def main():
     st = load_state()
     year_results, all_changes, mb_results = st["year_results"], st["all_changes"], st["mb_results"]
     grid_info, bad_mask = setup_grid()
-    _, slope, slope_bins, ref_dem = load_reference_products(grid_info, bad_mask)
-    outlines = list(cfg.YEAR_MASKS.values())
 
-    # Hypsometry, mass balance and penetration diagnostics
-    plot_penetration_onset(st["onset"])
-    if mb_results:
-        plot_sar_penetration_diagnostics(mb_results)
-        plot_mass_balance_uncertainty(mb_results)
-        plot_mass_balance_uncertainty_paper(mb_results, show_bin_errorbars=False)
-        plot_mass_balance_uncertainty_paper(mb_results, show_bin_errorbars=True)
-    plot_time_series(all_changes, year_results)
-    plot_hypsometric_analysis(all_changes, year_results, mb_results=mb_results)
-    plot_hypsometric_analysis_all_periods(all_changes, year_results, mb_results=mb_results)
-
-    # Maps
+    # Figures 1 and 2
     if all_changes:
-        plot_uncertainty_and_filtering_maps(
-            all_changes=all_changes, year_results=year_results, grid_info=grid_info,
-            preloaded_slope=slope, preloaded_slope_bins=slope_bins,
-            GLACIER_MASK_DIR=cfg.GLACIER_MASK_DIR, GLACIER_INVENTORY_MAP=cfg.GLACIER_INVENTORY_MAP,
-            DEFAULT_GLACIER_SHP=cfg.DEFAULT_GLACIER_SHP, STABLE_TERRAIN_DIR=cfg.STABLE_TERRAIN_DIR)
-        plot_spatial_maps(all_changes, grid_info, bad_mask, mb_results=mb_results,
-                          shp_path=cfg.DEFAULT_GLACIER_SHP, union_shp_paths=outlines)
-        plot_extended_spatial_maps(all_changes, mb_results, grid_info, bad_mask,
-                                   density_A=cfg.DENSITY_A, density_B=cfg.DENSITY_B,
-                                   shp_path=cfg.DEFAULT_GLACIER_SHP)
         plot_comprehensive_summary(year_results=year_results, all_changes=all_changes,
                                    mb_results=mb_results, grid_info=grid_info, bad_mask=bad_mask,
-                                   shp_path=cfg.MASK_PATH, union_shp_paths=outlines)
+                                   shp_path=cfg.MASK_PATH, union_shp_paths=list(cfg.YEAR_MASKS.values()))
 
-    # Centerline profiles and multi-panel centerline figures
-    plot_centerline_elevation_changes(all_changes, year_results, grid_info, cfg.CENTERLINE_DIR,
-                                      preloaded_ref_dem=ref_dem, mb_results=mb_results)
+    # Figures 3 and 4
+    all_glacier_data, glacier_profiles, periods = collect_centerline_profiles(
+        all_changes, year_results, grid_info, mb_results=mb_results)
+    plot_glacier_period_heatmap(all_glacier_data, periods)
+    plot_centerline_profiles_figure(glacier_profiles, all_glacier_data, grid_info)
     print("\n=== TanDEM-X figures complete ===")
 
 
