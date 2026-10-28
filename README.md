@@ -6,7 +6,7 @@ Processing and plotting scripts for the paper
 
 > **Elevation changes of Wordie Ice Shelf tributaries derived from TanDEM-X digital elevation models and satellite altimetry data (2014–2025)**
 >
-> Antonia Warnstedt¹\*, Christian Sommer¹, Thorsten Seehaus¹, José-Luis Bueso-Bello² & Matthias H. Braun¹
+> Antonia Warnstedt¹\*, Christian Sommer¹, Thorsten Seehaus¹, José-Luis Bueso-Bello² and Matthias H. Braun¹
 >
 > ¹ Institut für Geographie, Friedrich-Alexander-Universität Erlangen-Nürnberg, Erlangen, 91058, Germany
 > ² Microwaves and Radar Institute, German Aerospace Center (DLR), Wessling, 82234, Germany
@@ -141,6 +141,10 @@ All data are expected in one projected CRS (`tandemx/config.py: CRS`, default EP
 | ICESat-2 ATL06 points with ellipsoidal height `h_elv` and decimal-year time `t_year` | shapefile | `IS2_BASE_PATH`, `IS2_FILE_GLOB` |
 | Rock outcrop (cross-check on stable ground) | shapefile | `validation/config.py: ROCK_OUTCROP_PATH` |
 | EGM2008 geoid grid | GeoTIFF | `GEOID_GRID_EGM2008` |
+
+## Example data
+
+| Data: https://doi.org/10.5281/zenodo.20298843
 
 ## Methods references
 
