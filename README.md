@@ -6,10 +6,10 @@ Processing and plotting scripts for the paper
 
 > **Elevation changes of Wordie Ice Shelf tributaries derived from TanDEM-X digital elevation models and satellite altimetry data (2014–2025)**
 >
-> Antonia Warnstedt¹\*, Christian Sommer¹, Thorsten Seehaus¹, Jose-Luis Bueso-Bello² & Matthias H. Braun¹
+> Antonia Warnstedt¹\*, Christian Sommer¹, Thorsten Seehaus¹, José-Luis Bueso-Bello² & Matthias H. Braun¹
 >
-> ¹ Institute of Geography, Friedrich-Alexander-University Erlangen-Nürnberg
-> ² Microwaves and Radar Institute, German Aerospace Center (DLR)
+> ¹ Institut für Geographie, Friedrich-Alexander-Universität Erlangen-Nürnberg, Erlangen, 91058, Germany
+> ² Microwaves and Radar Institute, German Aerospace Center (DLR), Wessling, 82234, Germany
 > \* Corresponding author
 
 The code covers four steps:
